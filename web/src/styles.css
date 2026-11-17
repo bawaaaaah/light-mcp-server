@@ -97,6 +97,27 @@ h2 {
   color: var(--danger);
   cursor: pointer;
 }
+/* Live: the lists that could not be read (pages/Dashboards.tsx), one alert for all, closed by its ✕ */
+.read-error {
+  cursor: default;
+  overflow-wrap: anywhere;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+.read-error button {
+  min-width: 44px;
+  min-height: 44px;
+}
+/* a widget's target picker whose list could not be read: why, and « Relire » (components/WidgetMenu.tsx) */
+.read-why {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4em;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
 .warn {
   color: var(--warn);
 }

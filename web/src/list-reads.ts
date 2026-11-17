@@ -1,7 +1,8 @@
 /** A dashboard page reads its lists (looks, groups, faders…) again and again: only the latest read of a list is applied. Pure. */
 
 /** The lists a dashboard reads; each can be read again while an older read is still on its way. */
-export type ReadList = "looks" | "groups" | "faders" | "snapshots" | "folders";
+export const READ_LISTS = ["looks", "groups", "faders", "snapshots", "folders"] as const;
+export type ReadList = (typeof READ_LISTS)[number];
 
 /** How a failed read is told and tried again; the clock is injectable. */
 export interface ReadRetry {
@@ -12,7 +13,6 @@ export interface ReadRetry {
   later?: (fn: () => void, ms: number) => void;
 }
 export const RETRY_MS = 1000;
-export const READ_LISTS: ReadList[] = ["looks", "groups", "faders", "snapshots", "folders"];
 
 /** Every read under way is dropped (the page is leaving): nothing is applied, tried again or said after this. */
 export function dropReads(counters: Record<ReadList, number>): void {
@@ -40,3 +40,46 @@ export function latestRead<T>(counters: Record<ReadList, number>, list: ReadList
     );
   attempt(1);
 }
+
+/** Where a list's reading stands: a read under way, and the failure said for it (closed by ✕ or not). */
+export interface ReadState {
+  reading: boolean;
+  failure?: { message: string; dismissed: boolean };
+}
+export type ReadStates = Partial<Record<ReadList, ReadState>>;
+
+/** A read of `list` starts: its failure, if any, stays said until it is read. */
+export const started = (s: ReadStates, list: ReadList): ReadStates => (s[list]?.reading ? s : { ...s, [list]: { ...s[list], reading: true } });
+/** `list` read: no read under way, no failure. The other lists keep theirs. */
+export const cleared = (s: ReadStates, list: ReadList): ReadStates => (s[list] ? { ...s, [list]: undefined } : s);
+/**
+ * `list` could not be read. A failure closed by ✕ comes back only if it changes: the same failure again (each press
+ * on a look reads the lists again while the server is away) stays closed.
+ */
+export function failed(s: ReadStates, list: ReadList, message: string): ReadStates {
+  const before = s[list]?.failure;
+  return { ...s, [list]: { reading: false, failure: { message, dismissed: before?.message === message && before.dismissed } } };
+}
+/** ✕: the failures said for `lists` are closed. */
+export function dismissed(s: ReadStates, lists: readonly ReadList[]): ReadStates {
+  const next = { ...s };
+  for (const list of lists) {
+    const state = s[list];
+    if (state?.failure) next[list] = { ...state, failure: { ...state.failure, dismissed: true } };
+  }
+  return next;
+}
+/** The failures to say, one line per message, its lists in their order: a server away says it once for all of them. */
+export function alertLines(s: ReadStates): { lists: ReadList[]; message: string }[] {
+  const lines: { lists: ReadList[]; message: string }[] = [];
+  for (const list of READ_LISTS) {
+    const failure = s[list]?.failure;
+    if (!failure || failure.dismissed) continue;
+    const line = lines.find((l) => l.message === failure.message);
+    if (line) line.lists.push(list);
+    else lines.push({ lists: [list], message: failure.message });
+  }
+  return lines;
+}
+/** A message ending its sentence once: the server's own may already end with a point. */
+export const sentence = (message: string): string => `${message.replace(/[\s.]+$/, "")}.`;

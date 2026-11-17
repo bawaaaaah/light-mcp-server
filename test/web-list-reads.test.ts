@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { dropReads, latestRead, type ReadList, type ReadRetry } from "../web/src/list-reads.js";
+import { alertLines, cleared, dismissed, dropReads, failed, latestRead, sentence, started, type ReadList, type ReadRetry, type ReadStates } from "../web/src/list-reads.js";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const counters = (): Record<ReadList, number> => ({ looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 });
@@ -97,5 +97,47 @@ describe("list reads", () => {
     tick();
     await flush();
     expect([applied, tries, errors]).to.deep.equal([[], 1, []]);
+  });
+
+  describe("what is said of the failed reads", () => {
+    it("says a failure until its list is read; a list read leaves the others' failures", () => {
+      let s: ReadStates = started({}, "groups");
+      expect(s.groups).to.deep.equal({ reading: true });
+      s = failed(failed(s, "groups", "down"), "looks", "down");
+      expect(s.groups).to.deep.equal({ reading: false, failure: { message: "down", dismissed: false } });
+      s = started(s, "groups"); // read again: under way, and still said
+      expect(s.groups).to.deep.equal({ reading: true, failure: { message: "down", dismissed: false } });
+      s = cleared(s, "groups");
+      expect(s.groups).to.equal(undefined);
+      expect(s.looks?.failure?.message).to.equal("down");
+      expect(cleared(s, "faders")).to.equal(s); // nothing to clear: the same state
+    });
+
+    it("keeps a failure closed by ✕ closed while it stays the same, and says it again once it changes", () => {
+      let s = failed({}, "groups", "Failed to fetch");
+      s = dismissed(s, ["groups"]);
+      expect(alertLines(s)).to.deep.equal([]);
+      s = failed(started(s, "groups"), "groups", "Failed to fetch"); // a look pressed: read again, failed again
+      expect(alertLines(s)).to.deep.equal([]);
+      s = failed(s, "groups", "server error");
+      expect(alertLines(s)).to.deep.equal([{ lists: ["groups"], message: "server error" }]);
+      s = failed(dismissed(cleared(s, "groups"), ["groups"]), "groups", "server error"); // read, then failing anew
+      expect(alertLines(s)).to.have.length(1);
+    });
+
+    it("says one line per message, its lists in order: a server away once for all", () => {
+      const lists: ReadList[] = ["snapshots", "looks", "faders"];
+      let s: ReadStates = {};
+      for (const l of lists) s = failed(s, l, "Failed to fetch");
+      s = failed(s, "folders", "other");
+      expect(alertLines(s)).to.deep.equal([
+        { lists: ["looks", "faders", "snapshots"], message: "Failed to fetch" },
+        { lists: ["folders"], message: "other" },
+      ]);
+    });
+
+    it("ends a message with one point", () => {
+      expect([sentence("down"), sentence("down."), sentence("down. ")]).to.deep.equal(["down.", "down.", "down."]);
+    });
   });
 });

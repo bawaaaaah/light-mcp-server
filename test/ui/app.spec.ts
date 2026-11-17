@@ -1371,17 +1371,24 @@ test("dashboards: the groups failing to read are said, and read again they make 
     expect(dca, "a DCA widget with its group on the first dashboard").toBeTruthy();
     const groups = (await api(page, "group.list")) as { id: string; name: string }[];
     failing = true;
-    // still failing: the picker is not busy any more, it says why
+    // still failing: busy while it reads again, then not busy, and why is said under the field, with « Relire »
+    let tries = 0;
+    page.on("request", (r) => r.url().endsWith("/commands/group.list") && tries++);
     await page.locator(`.dgrid .cell[data-widget="${dca!.id}"]`).click({ button: "right" });
-    const picker = page.getByRole("dialog", { name: "Réglages du widget" }).getByLabel("Pilote");
+    const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+    const picker = menu.getByLabel("Pilote");
     await expect(picker).toBeDisabled();
-    await expect(picker).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
-    await expect(picker).toHaveAttribute("title", /Groupes illisibles/);
-    await page.keyboard.press("Escape");
+    await expect(picker).toHaveAttribute("aria-busy", "true");
+    await expect.poll(() => tries).toBeGreaterThanOrEqual(2); // the read and its retry, both failed
+    await expect(picker).toHaveAttribute("aria-busy", "false");
+    const why = menu.locator(".read-why");
+    await expect(why).toContainText("Groupes illisibles : groupes illisibles pour le test.");
+    await expect(picker).toHaveAttribute("aria-describedby", (await why.getAttribute("id"))!);
+    // « Relire »: this time the groups come, and the message goes
     failing = false;
-    // the right-click reads the lists again: this time the groups come, and the message goes
-    await page.locator(`.dgrid .cell[data-widget="${dca!.id}"]`).click({ button: "right" });
+    await why.getByRole("button", { name: "Relire" }).click();
     await expect(picker).toBeEnabled();
+    await expect(why).toHaveCount(0);
     await expect(alert).toHaveCount(0);
     await expect(picker).toHaveValue(dca!.target!);
     await expect(picker.locator("option")).toHaveCount(groups.length + 1); // « — » and every group
@@ -1390,6 +1397,54 @@ test("dashboards: the groups failing to read are said, and read again they make 
     await page.unroute("**/api/plugins/light/commands/group.list");
   }
   // the 500s the test made are the only console errors
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: a failed read's alert closed by ✕ keeps the focus in the bar and stays closed while the failure is the same", async ({ page }) => {
+  const errors = watchErrors(page);
+  let message = "groupes illisibles pour le test";
+  await page.route("**/api/plugins/light/commands/group.list", (route) => route.fulfill({ status: 500, json: { ok: false, error: message } }));
+  await page.route("**/api/plugins/light/commands/fader.list", (route) => route.fulfill({ status: 500, json: { ok: false, error: "groupes illisibles pour le test" } }));
+  try {
+    await login(page);
+    const alert = page.locator(".dashboards .bar .read-error");
+    await expect(alert).toHaveCount(1); // one alert, both lists in it
+    await expect(alert).toContainText("Groupes, Faders illisibles : groupes illisibles pour le test.");
+    await alert.getByRole("button", { name: "Fermer" }).click();
+    await expect(alert).toHaveCount(0);
+    await expect(page.locator(".dashboards .bar .tab.active")).toBeFocused();
+    // the same failure again (a command makes the page read its lists): still closed
+    let tries = 0;
+    page.on("request", (r) => r.url().endsWith("/commands/group.list") && tries++);
+    await api(page, "look.stopall");
+    await expect.poll(() => tries).toBeGreaterThanOrEqual(2);
+    await page.waitForTimeout(300); // a closed alert would have come back by now
+    await expect(alert).toHaveCount(0);
+    // another failure: said again
+    message = "autre panne pour le test";
+    await api(page, "look.stopall");
+    await expect(alert).toContainText("Groupes illisibles : autre panne pour le test.");
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.list");
+    await page.unroute("**/api/plugins/light/commands/fader.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: leaving the Live drops its reads: no retry goes out after it", async ({ page }) => {
+  const errors = watchErrors(page);
+  let tries = 0;
+  await page.route("**/api/plugins/light/commands/snapshot.list", (route) => (tries++, route.fulfill({ status: 500, json: { ok: false, error: "instantanés illisibles pour le test" } })));
+  try {
+    await login(page);
+    await expect.poll(() => tries).toBeGreaterThanOrEqual(1);
+    await page.locator("nav.pages button", { hasText: "Mon compte" }).click(); // the Live leaves before its retries are due
+    const left = tries;
+    await page.waitForTimeout(1500); // past the retry's wait (1 s)
+    expect(tries).toBe(left);
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/snapshot.list");
+  }
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
 

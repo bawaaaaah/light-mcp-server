@@ -7,20 +7,21 @@ import { autoColored, confirmable, neutral, pressable, shared, type ButtonMode, 
 const MODES = ["latch", "momentary", "trigger", "toggle"] as const;
 
 /** The panel of the one widget selected while arranging: what it drives, its label, its mode, its place and size. */
-export function WidgetEditor({ w, columns, step, lists, failed, onPatch, onRemove }: {
+export function WidgetEditor({ w, columns, step, lists, failed, onRetry, onPatch, onRemove }: {
   w: Widget;
   columns: number;
   /** A cell, or a quarter of one off the magnetic grid. */
   step: number;
   lists: TargetLists;
   failed?: TargetFailures;
+  onRetry?: () => void;
   onPatch: (patch: Partial<Widget>) => void;
   onRemove: () => void;
 }): ReactElement {
   const t = useT();
   return (
     <section className="editor">
-      <TargetSelect kind={w.kind} value={w.target} lists={lists} failed={failed} onChange={(target) => onPatch({ target })} />
+      <TargetSelect kind={w.kind} value={w.target} lists={lists} failed={failed} onRetry={onRetry} onChange={(target) => onPatch({ target })} />
       <input placeholder={t.labelText} aria-label={t.labelText} value={w.label ?? ""} onChange={(e) => onPatch({ label: e.target.value || undefined })} />
       {pressable(w) && (
         <select aria-label={t.mode} value={w.mode ?? "latch"} onChange={(e) => onPatch({ mode: e.target.value as ButtonMode })}>

@@ -1717,7 +1717,9 @@ const fr = {
   /** A widget's target no longer in the show (deleted): kept, and said. */
   targetMissing: "{id} (introuvable)",
   /** A list of the Live that could not be read, twice: which, why, and how to read it again. */
-  readFailed: "{list} illisibles : {message}. Rouvrir le menu d'un widget (ou le mode édition) pour relire.",
+  readFailed: "{lists} illisibles : {message}",
+  readFailedHow: "Rouvrir le menu d'un widget (ou le mode édition) pour relire.",
+  readAgain: "Relire",
   readLists: { looks: "Looks", groups: "Groupes", faders: "Faders", snapshots: "Instantanés", folders: "Dossiers" },
   pitchBend: "Pitch bend",
   widgetLabel: "Libellé",
@@ -3855,7 +3857,9 @@ const en: typeof fr = {
   assignLook: "Look started",
   assignTarget: "Drives",
   targetMissing: "{id} (not found)",
-  readFailed: "{list} could not be read: {message}. Reopen a widget's menu (or the edit mode) to read them again.",
+  readFailed: "{lists} could not be read: {message}",
+  readFailedHow: "Reopen a widget's menu (or the edit mode) to read them again.",
+  readAgain: "Read again",
   readLists: { looks: "Looks", groups: "Groups", faders: "Faders", snapshots: "Snapshots", folders: "Folders" },
   pitchBend: "Pitch bend",
   widgetLabel: "Label",
