@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { ApiError, cmd, switchingShow } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { quoted } from "../typography";
 import { Modal } from "../components/Modal";
 

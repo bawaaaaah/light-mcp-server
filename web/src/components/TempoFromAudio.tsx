@@ -6,7 +6,7 @@
  * (audio/sections.ts). Nothing leaves the browser.
  */
 import { useState, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { detectTempo, type TempoEstimate } from "../audio/tempo";
 import { detectSections } from "../audio/sections";
 

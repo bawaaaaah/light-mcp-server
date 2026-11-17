@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactElement } from "react";
 import { useDomainEvents } from "../hooks/useTopic";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import type { Texts } from "../i18n";
 import { Modal } from "./Modal";
 import { confirmDelete } from "./confirmDelete";

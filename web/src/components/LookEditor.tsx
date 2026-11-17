@@ -10,7 +10,7 @@ import { tagsShown, tagsTyped, type KnowledgeIntentions } from "../intentions";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useTopic } from "../hooks/useTopic";
 import { defaultsFor, SchemaFields, type JsonSchema } from "./SchemaFields";
 import { BlockNames, StepsEditor } from "./StepsEditor";

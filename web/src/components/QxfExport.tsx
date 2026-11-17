@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { downloadDefinition, type DefinitionExport } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { isGenericDimmer } from "../../../src/plugins/light/venue/names";
 
 /** Whether a model has a .qxf file to export: QLC+'s built-in generic dimmer has none (the server's own rule). */

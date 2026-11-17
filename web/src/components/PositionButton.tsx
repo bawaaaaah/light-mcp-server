@@ -6,7 +6,7 @@
  * the app's toast. While arranging, a press only selects the widget.
  */
 import type { ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { headNames, holding, positionsStore, usePositions } from "../hooks/usePositions";
 import { recallPosition } from "../positionRecall";

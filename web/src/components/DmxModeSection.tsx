@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { ApiError, cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import type { Texts } from "../i18n";
 import { control } from "../ws";
 import { quoted } from "../typography";

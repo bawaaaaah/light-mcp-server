@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { can, cmd } from "../api";
-import { useMe, useT } from "../App";
+import { useMe } from "../app-context";
+import { useT } from "../i18n-context";
 import type { Texts } from "../i18n";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { useMotionLock, type MotionLockView } from "../hooks/useMotionLock";

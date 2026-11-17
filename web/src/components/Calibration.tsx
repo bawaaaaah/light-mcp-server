@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { cmd, lightState } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { XyPad } from "./XyPad";
 import { ManualCalibration, type Mark } from "./ManualCalibration";
 import { useMotionLock } from "../hooks/useMotionLock";

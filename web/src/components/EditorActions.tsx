@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactElement, ReactNode, Ref } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { Versions } from "./Versions";
 
 /**

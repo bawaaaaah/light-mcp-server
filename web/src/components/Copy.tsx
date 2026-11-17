@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 
 /** Copies `text`; when the clipboard is refused (plain HTTP, permissions) the text stays selectable. */
 export function CopyButton({ text }: { text: string }): ReactElement {

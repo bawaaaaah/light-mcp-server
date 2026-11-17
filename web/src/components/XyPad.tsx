@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { ApiError, cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useMotionHeads, type MotionHead, type MotionTarget, type Position } from "../hooks/useMotionHeads";
 import { isFrench, quoted } from "../typography";
 import { pressesLeft } from "../motionPresses";

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { LookPeek } from "./LookPeek";
 import { armGhostGuard } from "../ghost-guard";
 import { guardPassed, SHEET_GUARD_MS } from "../preview-first";

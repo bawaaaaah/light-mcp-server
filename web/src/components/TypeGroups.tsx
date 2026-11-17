@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { quoted } from "../typography";
 
 /** What venue.grouping.propose answers (src/plugins/light/venue/grouping.ts). */

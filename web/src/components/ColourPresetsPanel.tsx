@@ -6,7 +6,8 @@
  */
 import { useId, useState, type CSSProperties, type ReactElement } from "react";
 import { can, cmd, type Role } from "../api";
-import { useMe, useT } from "../App";
+import { useMe } from "../app-context";
+import { useT } from "../i18n-context";
 import { EditorActions } from "./EditorActions";
 import { colourPresetsStore, useColourPresets, type ColourPresetRow } from "../hooks/useColourPresets";
 import { quoted } from "../typography";

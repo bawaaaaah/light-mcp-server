@@ -7,7 +7,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { useThrottledSend } from "../hooks/useThrottledSend";
 import { targetsStore, useTarget, type Point3, type TargetRow } from "../hooks/useTargets";

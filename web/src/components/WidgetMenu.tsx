@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
 import { actionOf, build, newMapping, type Action, type MappingDraft } from "./MappingEditor";
 import { isHex, SWATCHES } from "../color";

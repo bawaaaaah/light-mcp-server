@@ -1,5 +1,5 @@
 import { useImperativeHandle, useRef, type KeyboardEvent, type ReactElement, type ReactNode, type Ref } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { radioTarget } from "../radio-keys";
 
 /** What a caller can do with the group: put the focus back on the checked choice (a button gone, a question answered). */

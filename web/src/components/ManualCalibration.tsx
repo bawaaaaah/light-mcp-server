@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactElement, type RefObject } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useDomainEvents } from "../hooks/useTopic";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { useMotionLock } from "../hooks/useMotionLock";

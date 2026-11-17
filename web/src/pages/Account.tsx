@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { api, can, keysUsableHere, registerKey, serverInfo, type KeyRow, type Role, type UserRow } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { roleLabel } from "../i18n";
 import { PasskeyTable } from "../components/PasskeyTable";
 

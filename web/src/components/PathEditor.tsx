@@ -10,7 +10,7 @@
  *   the warnings (speed rule, no-aim zone) come from look.preview, computed by the server as the render does.
  */
 import { useId, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { SearchPicker } from "./SearchPicker";
 import { stageFrame, stageLayout, type StageXY } from "../stage-frame";
 import { aimSpot, zoneAt } from "../zone-shape";

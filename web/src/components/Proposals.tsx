@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useDomainEvents } from "../hooks/useTopic";
 import type { Texts } from "../i18n";
 import { quoted } from "../typography";

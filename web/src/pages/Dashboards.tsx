@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, lazy, Suspense, type ReactElement } from "react";
 import { ApiError, can, cmd, type Role } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useHoverPeek } from "../components/HoverPeek";
 import { warmPeek } from "../components/LookPeek";
 import { PreviewBeforeLaunch } from "../components/PreviewBeforeLaunch";

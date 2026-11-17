@@ -5,7 +5,8 @@
  */
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { api, can, cmd } from "../api";
-import { useMe, useT } from "../App";
+import { useMe } from "../app-context";
+import { useT } from "../i18n-context";
 import { useDomainEvents } from "../hooks/useTopic";
 import { slug, uniqueId } from "../util";
 import { roleLabel } from "../i18n";

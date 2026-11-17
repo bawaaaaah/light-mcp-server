@@ -4,7 +4,7 @@
  * stays the single source of truth: a new technique parameter shows up without UI code.
  */
 import type { ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { plain } from "../util";
 import { useColourPresets } from "../hooks/useColourPresets";
 import { ColourPresetPicker } from "./ColourFavorites";

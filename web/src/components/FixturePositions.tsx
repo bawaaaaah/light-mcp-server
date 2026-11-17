@@ -7,7 +7,7 @@
  */
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { EditorActions } from "./EditorActions";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { usePositions, type PositionRow } from "../hooks/usePositions";

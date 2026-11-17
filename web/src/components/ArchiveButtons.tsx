@@ -1,7 +1,7 @@
 import { useId, useState, type ReactElement } from "react";
 import { Modal } from "./Modal";
 import { downloadArchive, previewArchive, restoreArchive, type FixturePolicy, type FolderDiff, type FixtureSummary, type IntentionTwin } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { fill, plural } from "../intentions";
 
 /**

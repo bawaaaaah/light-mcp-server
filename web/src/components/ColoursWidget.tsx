@@ -7,7 +7,7 @@
  * arranging, a press only selects the widget.
  */
 import type { ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useColoursApplied } from "../hooks/useColourPresets";
 import { applyColour, ColourFavoriteButtons, ColourPresetPicker, releaseColour } from "./ColourFavorites";
 

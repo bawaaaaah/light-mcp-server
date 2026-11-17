@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useDomainEvents, useTopic } from "../hooks/useTopic";
 import { newSong, SetlistEditor, SongEditor, type SetlistDraft, type SongDraft } from "../components/SongEditor";
 import { originsOf, type KnowledgeIntentions } from "../intentions";

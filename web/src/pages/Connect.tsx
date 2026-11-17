@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { api, can, getToken, serverInfo, type Role } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { CodeBlock, CopyButton } from "../components/Copy";
 import { quoted } from "../typography";
 

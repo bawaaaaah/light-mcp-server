@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { api, type KeyRow } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { quoted } from "../typography";
 
 const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString() : "—");

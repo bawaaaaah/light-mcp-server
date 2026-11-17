@@ -5,7 +5,7 @@
  * a new fixture begins; painting one paints its own cell of the canvas.
  */
 import { useState, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { PresetColorInput } from "./SchemaFields";
 import type { Block } from "../canvas-blocks";
 

@@ -4,7 +4,7 @@
  */
 import { useEffect, useId, useMemo, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
 import { confirmDelete } from "./confirmDelete";
 import { SmoothingField, type Smoothing } from "./SmoothingField";

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { ApiError, can, cmd, lightState, type Role } from "../api";
-import { useNav, useT } from "../App";
+import { useNav } from "../app-context";
+import { useT } from "../i18n-context";
 import { useDomainEvents } from "../hooks/useTopic";
 import { slug } from "../util";
 

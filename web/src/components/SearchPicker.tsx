@@ -9,7 +9,7 @@
  * thumbnail (T19). The filtering and the keys are pure (search-picker.ts).
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { pickerRows, rowAfterKey, SEARCH_FROM, type SearchItem } from "../search-picker";
 
 export interface SearchPickerProps<T extends SearchItem> {

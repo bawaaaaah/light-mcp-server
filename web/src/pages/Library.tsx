@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
-import { useMe, useT } from "../App";
+import { useMe } from "../app-context";
+import { useT } from "../i18n-context";
 import { can, cmd } from "../api";
 import { Modal } from "../components/Modal";
 import { useContextMenu, useFloatingMenu, useMenuFocus } from "../components/menu";

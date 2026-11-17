@@ -9,7 +9,7 @@ import { themesOf, type KnowledgeMoods } from "../themes";
 import { useDomainEvents } from "../hooks/useTopic";
 import { IntentionOrigins } from "./IntentionOrigins";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { plain, slug, splitList, uniqueId } from "../util";
 import { TempoFromAudio } from "./TempoFromAudio";
 import { quoted, beforeMark } from "../typography";

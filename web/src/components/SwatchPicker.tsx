@@ -3,7 +3,7 @@
  * screen readers by the swatch's name. Shared by the forms of the 3D targets (T24) and of the named positions (T32).
  */
 import type { ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { SWATCHES } from "../color";
 
 export function SwatchPicker({ label, noneLabel, value, onChange }: { label: string; noneLabel: string; value: string | undefined; onChange: (color: string | undefined) => void }): ReactElement {

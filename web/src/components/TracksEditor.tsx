@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { ScopeRadio, type SegmentedRadioHandle } from "./SegmentedRadio";
 
 type Kind = "dimmer" | "colour" | "position" | "wheel" | "other";

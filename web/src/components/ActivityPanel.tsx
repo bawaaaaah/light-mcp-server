@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { api, cmd } from "../api";
 import { canvasPass, canvasQuestion } from "./Versions";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useDomainEvents } from "../hooks/useTopic";
 import { quoted, beforeMark } from "../typography";
 

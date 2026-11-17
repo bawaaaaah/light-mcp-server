@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useTopic } from "../hooks/useTopic";
 import { useFrozenPreview } from "../hooks/useFrozenPreview";
 import { canvasBlocks, fixtureColors, stageOrder, stripColumns, type Block, type CanvasRender } from "../canvas-blocks";

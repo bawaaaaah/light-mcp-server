@@ -1,7 +1,7 @@
 import { beforeMark, quoted } from "../typography";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useDomainEvents } from "../hooks/useTopic";
 import { labelOf } from "../util";
 import { folderLabel, folderOf, foldersOf, inTree, withParents, withoutFolderTag } from "../../../src/plugins/light/show/folders.js";

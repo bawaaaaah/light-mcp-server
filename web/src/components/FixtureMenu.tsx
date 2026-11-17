@@ -1,6 +1,6 @@
 import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu, useMenuFocus } from "./menu";
 import { DmxModeSection } from "./DmxModeSection";

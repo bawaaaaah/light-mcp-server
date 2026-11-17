@@ -10,7 +10,7 @@
  */
 import { useRef, type CSSProperties, type ReactElement } from "react";
 import { ApiError, cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { leftOut } from "../leftOut";
 import { showLockToast } from "./MotionLockButton";

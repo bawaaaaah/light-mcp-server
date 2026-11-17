@@ -6,7 +6,7 @@
  * channels the range does not fit are named (the fader has one range for all its channels).
  */
 import { useId, useState, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { functionsOf, searchFunctions, type FaderFunction } from "../fader-functions";
 
 export interface Range {

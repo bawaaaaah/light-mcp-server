@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { can, cmd, downloadBackup, type Role } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { ArchiveButtons } from "../components/ArchiveButtons";
 import { IntentionsManager } from "../components/IntentionsManager";
 import { quoted } from "../typography";

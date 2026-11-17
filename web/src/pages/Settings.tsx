@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { can, cmd, type Role } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { UsersPanel } from "../components/UsersPanel";
 import { RolesPanel } from "../components/RolesPanel";
 import { ActivityPanel, OnlinePanel } from "../components/ActivityPanel";

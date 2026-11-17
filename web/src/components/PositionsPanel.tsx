@@ -10,7 +10,8 @@
  */
 import { useId, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { can, cmd, type Role } from "../api";
-import { useMe, useT } from "../App";
+import { useMe } from "../app-context";
+import { useT } from "../i18n-context";
 import { EditorActions } from "./EditorActions";
 import { useMotionHeads } from "../hooks/useMotionHeads";
 import { headNames, holding, storedOf, usePositions, type PositionRow } from "../hooks/usePositions";

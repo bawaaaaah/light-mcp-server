@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from "react";
 import { cmd, lightState } from "../api";
-import { useNav, useT } from "../App";
+import { useNav } from "../app-context";
+import { useT } from "../i18n-context";
 import { useDomainEvents } from "../hooks/useTopic";
 import { useMotionLock } from "../hooks/useMotionLock";
 import { stricter } from "../motionLock";

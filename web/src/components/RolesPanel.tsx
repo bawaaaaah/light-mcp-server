@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { api, cmd, grants } from "../api";
 import { impliedBy } from "../rights";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { roleLabel } from "../i18n";
 import { quoted, beforeMark } from "../typography";
 

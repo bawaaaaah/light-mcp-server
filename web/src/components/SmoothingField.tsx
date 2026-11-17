@@ -4,7 +4,7 @@
  * Shared by the channel fader and group editors and the grand master's menu.
  */
 import { useState, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 
 export interface Smoothing {
   curve: "linear" | "ease";

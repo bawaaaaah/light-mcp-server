@@ -6,7 +6,7 @@
  * is a prop, so it may change later (custom intentions, T15).
  */
 import { useId, useRef, useState, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { quoted } from "../typography";
 import { addTheme, canAddFree, enterPick, searchThemes, themeLabel, themeOf, themeRef, toggleTheme, type Theme } from "../themes";
 

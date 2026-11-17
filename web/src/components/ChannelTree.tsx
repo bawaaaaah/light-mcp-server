@@ -6,7 +6,7 @@
  * (intensity, colours, strobe, effects), or the same channel on every fixture that has it.
  */
 import { useMemo, useState, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import type { FixtureChannels } from "./FaderEditor";
 
 export interface PickedChannel {

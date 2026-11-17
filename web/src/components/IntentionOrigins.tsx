@@ -7,7 +7,7 @@
  */
 import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { bearersOf, fill, originsOf, refFor, resolveWord, type KnowledgeIntentions } from "../intentions";
 
 export function IntentionOrigins({ words, kb: given, onPick }: { words: readonly string[]; kb?: KnowledgeIntentions | null; onPick?: (word: string, id: string) => void }): ReactElement | null {

@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactElement } from "react";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { labelOf } from "../util";
 import { useFloatingMenu, useMenuFocus } from "./menu";
 import { aimSpot, ellipsePolygon, rectPolygon, validZone, zoneRect, type Pt, type ZoneOutline } from "../zone-shape";

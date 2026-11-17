@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { cmd, lightState } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { stream } from "../ws";
 import { quoted } from "../typography";
 

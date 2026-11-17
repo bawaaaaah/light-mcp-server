@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { useFloatingMenu } from "./menu";
 import { can, cmd, type Role } from "../api";
-import { useMe, useT } from "../App";
+import { useMe } from "../app-context";
+import { useT } from "../i18n-context";
 import { useDomainEvents, useTopic } from "../hooks/useTopic";
 import { rangeAt, type NamedRange } from "../fader-functions";
 import { quoted } from "../typography";

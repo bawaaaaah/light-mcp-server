@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { useFloatingMenu } from "./menu";
 import { folderLabel } from "../../../src/plugins/light/show/folders.js";
 

@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { EditorActions } from "./EditorActions";
 import { useDomainEvents } from "../hooks/useTopic";
 import type { Box3, MoveFade, Smoothing, TargetRow } from "../hooks/useTargets";

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { control } from "../ws";
 import { plain } from "../util";
 import { useTopic } from "../hooks/useTopic";

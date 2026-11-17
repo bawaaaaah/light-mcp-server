@@ -5,7 +5,7 @@
  */
 import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
 import { ACTIONS, NO_PROGRAM, build, actionOf, colourGroupOf, type Action, type MappingDraft } from "../mappingActions";
 import { useColourPresets } from "../hooks/useColourPresets";

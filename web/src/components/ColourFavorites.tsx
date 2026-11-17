@@ -7,7 +7,7 @@
  */
 import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import type { Texts } from "../i18n";
 import { appliedStore, useColourPresets, type ColourPresetRow } from "../hooks/useColourPresets";
 import { textOn } from "../color";

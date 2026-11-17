@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { ScopeRadio, type SettingScope as Scope } from "./SegmentedRadio";
 
 interface HeadRow {

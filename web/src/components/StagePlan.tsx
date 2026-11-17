@@ -23,7 +23,7 @@
  */
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type ReactElement } from "react";
 import { cmd } from "../api";
-import { useT } from "../App";
+import { useT } from "../i18n-context";
 import { stream } from "../ws";
 import { useDomainEvents } from "../hooks/useTopic";
 import { useContextMenu } from "./menu";
