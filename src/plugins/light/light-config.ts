@@ -85,6 +85,7 @@ export class ConfigCell {
   section<K extends keyof LightConfig>(key: K): ConfigSection<K> {
     return {
       get: () => this.value[key],
+      // TypeScript does not check a computed key against its value: `next: LightConfig[K]` is what keeps them in step
       put: (next) => (this.value = { ...this.value, [key]: next }),
       save: () => this.save(),
     };
