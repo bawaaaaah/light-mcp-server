@@ -3,8 +3,8 @@ import { copyFileSync, mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FolderStore } from "../../../src/plugins/light/data/store.js";
-import { Venue, type AttributeFrame } from "../../../src/plugins/light/venue/venue.js";
-import { mergeColors } from "../../../src/plugins/light/venue/frame-merge.js";
+import { Venue } from "../../../src/plugins/light/venue/venue.js";
+import { mergeColors, type FrameColors } from "../../../src/plugins/light/venue/frame-merge.js";
 import { ShowRuntime } from "../../../src/plugins/light/show/runtime.js";
 
 /** Zones 1-3 (RGBW) at offsets 2-13, the halo (RGB) at 14-16 (test/fixtures/wash-zones.qxf, patched at 1). */
@@ -115,8 +115,8 @@ describe("heads: the halo fades and merges like any head", () => {
 });
 
 describe("heads: « last » covers every head the latest look reaches", () => {
-  const sheet = (entries: [string, [number, Record<string, number>][]][]): AttributeFrame["colors"] => new Map(entries.map(([f, heads]) => [f, new Map(heads)]));
-  const plain = (c: AttributeFrame["colors"]) => Object.fromEntries([...c].map(([f, heads]) => [f, Object.fromEntries(heads)]));
+  const sheet = (entries: [string, [number, Record<string, number>][]][]): FrameColors => new Map(entries.map(([f, heads]) => [f, new Map(heads)]));
+  const plain = (c: FrameColors) => Object.fromEntries([...c].map(([f, heads]) => [f, Object.fromEntries(heads)]));
 
   it("lets a later whole-fixture colour replace the heads an earlier look painted", () => {
     const into = sheet([["bar", [[0, { red: 1 }], [1, { red: 1 }]]]]);

@@ -23,7 +23,7 @@ import type { AimOptions } from "../venue/aim.js";
 import type { ColorComponent, FixtureChannel } from "../venue/qxf-import.js";
 import { motionOffsets, verbatimOffsets, type TrackLayer } from "../venue/tracks.js";
 import { emptyFrame, type AttributeFrame, type Canvas, type ResolvedFixture, type Venue, type WheelChoice } from "../venue/venue.js";
-import { addWeighted, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type Color, type RawWrite, type WeightedColors } from "../venue/frame-merge.js";
+import { addWeighted, mergeColors, rawLevelApplies, settle, splitByShown, weighted, type Color, type FrameColors, type RawWrite, type WeightedColors } from "../venue/frame-merge.js";
 import { slotHex } from "../venue/color-wheel.js";
 import type { PathWarning } from "../venue/path-check.js";
 import { applyHolds, applyRules, applySpeeds, applySteady, RuleProgramSchema, RuleSchema, rulesInForce, type Clamp, type Rule, type RuleProgram } from "../rules/rules.js";
@@ -133,9 +133,9 @@ interface ComposePass {
   /** The launch rank of each layer laid on a fixture with tracks: they stack by it. */
   readonly ranks: Map<TrackLayer, number>;
   /** What each look paints at full (atFull), once per player and frame. */
-  readonly full: Map<LookPlayer, AttributeFrame["colors"]>;
+  readonly full: Map<LookPlayer, FrameColors>;
   /** Colour maps painted at fade 1 and masters 1: already at full, no second paint needed. */
-  readonly full1: WeakSet<AttributeFrame["colors"]>;
+  readonly full1: WeakSet<FrameColors>;
 }
 
 /** What `ShowRuntime.explainChannel` answers: `intensity` is absent when no fixture owns the channel. */
@@ -1651,8 +1651,8 @@ export class ShowRuntime {
   }
 
   /** The colours of the playing looks that come in through a crossfade, at the weight they have risen to: what the looks leaving under them share. */
-  private risingColours(pass: ComposePass): Map<Crossfade, AttributeFrame["colors"]> {
-    const ownOf = new Map<Crossfade, AttributeFrame["colors"]>();
+  private risingColours(pass: ComposePass): Map<Crossfade, FrameColors> {
+    const ownOf = new Map<Crossfade, FrameColors>();
     for (const { look, player } of this.active.values()) {
       const x = this.crossfades.get(look.id);
       if (x) ownOf.set(x, this.colorsOf(pass, look, player, this.inWeight(x, pass.now)));
@@ -1665,7 +1665,7 @@ export class ShowRuntime {
    * add up on one sheet; what is on the fixtures the incoming look paints waits to share them with it (returned, by
    * crossfade), the rest goes under the active looks like the looks fading out on exit.
    */
-  private composeLeaving(pass: ComposePass, rising: ReadonlyMap<Crossfade, AttributeFrame["colors"]>): Map<Crossfade, WeightedColors> {
+  private composeLeaving(pass: ComposePass, rising: ReadonlyMap<Crossfade, FrameColors>): Map<Crossfade, WeightedColors> {
     const { now, frame } = pass;
     const shared = new Map<Crossfade, WeightedColors>();
     for (const [key, x] of this.crossfades) {
@@ -1685,7 +1685,7 @@ export class ShowRuntime {
   }
 
   /** The looks playing, last: on top. One coming in over others (a crossfade) shares their sheet on the fixtures it paints. */
-  private composePlaying(pass: ComposePass, rising: ReadonlyMap<Crossfade, AttributeFrame["colors"]>, shared: ReadonlyMap<Crossfade, WeightedColors>): void {
+  private composePlaying(pass: ComposePass, rising: ReadonlyMap<Crossfade, FrameColors>, shared: ReadonlyMap<Crossfade, WeightedColors>): void {
     const { now, frame } = pass;
     for (const { look, player } of this.active.values()) {
       const x = this.crossfades.get(look.id);
@@ -1861,7 +1861,7 @@ export class ShowRuntime {
    * Notes the fixtures a look paints with the weight its colours carry: they dose themselves (venue.toDmx, the machine
    * fade). Not those it paints on their accent heads only (a halo): that is no full colour of the fixture.
    */
-  private paints(pass: ComposePass, colors: AttributeFrame["colors"], weight: number, look: Look, player: LookPlayer, sheet: string): AttributeFrame["colors"] {
+  private paints(pass: ComposePass, colors: FrameColors, weight: number, look: Look, player: LookPlayer, sheet: string): FrameColors {
     const { frame } = pass;
     for (const [f, heads] of colors) {
       if (!this.venue.lightsBody(f, heads.keys())) continue;
@@ -1877,7 +1877,7 @@ export class ShowRuntime {
    * What a look paints at full, before its fades and its masters: a colour wheel pre-positions on it while the light is
    * still dark. Painted once per look and frame (`ComposePass.full`), and only for a look that reaches a wheel.
    */
-  private atFull(pass: ComposePass, look: Look, player: LookPlayer): AttributeFrame["colors"] {
+  private atFull(pass: ComposePass, look: Look, player: LookPlayer): FrameColors {
     let own = pass.full.get(player);
     if (!own) {
       const sheet = emptyFrame();
@@ -1897,7 +1897,7 @@ export class ShowRuntime {
    * A look's colours on its own sheet, scaled by `fade` and, fixture by fixture, by the masters of the groups
    * including it (lookLevelOn: not by those already dosing the fixture), its exclusions taken out.
    */
-  private colorsOf(pass: ComposePass, look: Look, player: LookPlayer, fade: number): AttributeFrame["colors"] {
+  private colorsOf(pass: ComposePass, look: Look, player: LookPlayer, fade: number): FrameColors {
     const { doses } = pass;
     let step: Step = player.render(pass.now, pass.beats);
     const excluded = this.excludedFrom(look);

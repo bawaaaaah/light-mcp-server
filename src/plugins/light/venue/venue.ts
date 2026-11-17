@@ -530,7 +530,7 @@ export class Venue {
    * full heads it paints (unless `follow` is false). Done per look, before looks are merged or weighted, so that
    * crossfades, exits and `looksMerge` treat the halo like any other head.
    */
-  followAccents(colors: AttributeFrame["colors"]): void {
+  followAccents(colors: FrameColors): void {
     for (const [fixture, sheet] of colors) {
       const r = this.resolve(fixture);
       if ("error" in r || !r.accent.size) continue;
