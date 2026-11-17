@@ -212,7 +212,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   /** The lists read at least once: before, a widget's target is not said « introuvable » (the list is only empty). */
   const [listsRead, setListsRead] = useState({ looks: false, groups: false, faders: false, snapshots: false });
   /** The one way a read list is written: kept, and marked read. */
-  const applyRead = useMemo(() => {
+  const [applyRead] = useState(() => {
     const readOnce = (list: keyof typeof listsRead) => setListsRead((r) => (r[list] ? r : { ...r, [list]: true }));
     return {
       looks: (v: Look[]) => (setLooks(v), readOnce("looks")),
@@ -220,15 +220,17 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
       faders: (v: ChannelFader[]) => (setFaders(v), readOnce("faders")),
       snapshots: (v: { id: string; name: string }[]) => (setSnapshots(v), readOnce("snapshots")),
     };
-  }, []);
-  const readGroups = useCallback(() => latestRead(reads.current, "groups", cmd<Group[]>("group.list"), applyRead.groups), [applyRead]);
+  });
+  /** A read that fails twice is said, like the dashboards' own (and the list stays as it was). */
+  const [readRetry] = useState(() => ({ onError: (e: Error) => setError(e.message) }));
+  const readGroups = useCallback(() => latestRead(reads.current, "groups", () => cmd<Group[]>("group.list"), applyRead.groups, readRetry), [applyRead, readRetry]);
   const refresh = useCallback(() => {
-    latestRead(reads.current, "looks", cmd<Look[]>("look.list", { brief: true }), applyRead.looks);
+    latestRead(reads.current, "looks", () => cmd<Look[]>("look.list", { brief: true }), applyRead.looks, readRetry);
     readGroups();
-    latestRead(reads.current, "faders", cmd<ChannelFader[]>("fader.list"), applyRead.faders);
-    latestRead(reads.current, "snapshots", cmd<{ id: string; name: string }[]>("snapshot.list"), applyRead.snapshots);
-    latestRead(reads.current, "folders", cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []));
-  }, [applyRead, readGroups]);
+    latestRead(reads.current, "faders", () => cmd<ChannelFader[]>("fader.list"), applyRead.faders, readRetry);
+    latestRead(reads.current, "snapshots", () => cmd<{ id: string; name: string }[]>("snapshot.list"), applyRead.snapshots, readRetry);
+    latestRead(reads.current, "folders", () => cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []), readRetry);
+  }, [applyRead, readGroups, readRetry]);
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
@@ -411,7 +413,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     setGm,
     lookById,
     groupById,
-    groupsRead: groups.length > 0,
+    groupsRead: listsRead.groups,
     setGroups,
     faders,
     setFaders,
@@ -437,17 +439,14 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   // several selected: what they share is set for all of them at once (one step to undo)
   const many = selection.length > 1 ? (dash?.widgets.filter((w) => selection.includes(w.id)) ?? []) : [];
   /** What a widget can drive, per list; a list not read yet is null. */
-  const targetLists = useMemo<TargetLists>(
-    () => ({
-      looks: listsRead.looks ? looks : null,
-      groups: listsRead.groups ? groups : null,
-      faders: listsRead.faders ? faders : null,
-      snapshots: listsRead.snapshots ? snapshots : null,
-      targets: targetsLoaded ? targets : null,
-      positions: positionsLoaded ? positions : null,
-    }),
-    [listsRead, looks, groups, faders, snapshots, targetsLoaded, targets, positionsLoaded, positions],
-  );
+  const targetLists: TargetLists = {
+    looks: listsRead.looks ? looks : null,
+    groups: listsRead.groups ? groups : null,
+    faders: listsRead.faders ? faders : null,
+    snapshots: listsRead.snapshots ? snapshots : null,
+    targets: targetsLoaded ? targets : null,
+    positions: positionsLoaded ? positions : null,
+  };
   const patchMany = (fn: (w: Widget) => Partial<Widget> | undefined) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (selection.includes(w.id) ? { ...w, ...fn(w) } : w)) }));
   return (
     <div className="dashboards">

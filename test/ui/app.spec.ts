@@ -1334,6 +1334,8 @@ test("dashboards: a widget's target is not said « introuvable » while its list
     await expect(picker.locator("option:checked")).toHaveText("hole");
     await expect(picker).toBeDisabled(); // nothing to choose yet, « — » not picked by mistake
     await expect(menu).not.toContainText("introuvable");
+    // waited so the checks below run on the answered list; the proof is in their retried expects, which only pass
+    // once the list is read (another look offered, the picker enabled)
     const answered = page.waitForResponse("**/api/plugins/light/commands/look.list");
     release();
     await answered;
@@ -1346,6 +1348,53 @@ test("dashboards: a widget's target is not said « introuvable » while its list
   } finally {
     release();
     await page.unroute("**/api/plugins/light/commands/look.list");
+  }
+  expect(errors).toEqual([]);
+});
+
+test("dashboards: the groups failing to read are said, and read again they make the DCA's picker usable", async ({ page }) => {
+  const errors = watchErrors(page);
+  // every read fails (the page's, and its retry) until the test lets them through
+  let failing = true;
+  await page.route("**/api/plugins/light/commands/group.list", async (route) => {
+    if (failing) return route.fulfill({ status: 500, json: { ok: false, error: "groupes illisibles pour le test" } });
+    await route.continue();
+  });
+  try {
+    await login(page);
+    await expect(page.locator(".dashboards .bar .error")).toContainText("groupes illisibles pour le test");
+    type Saved = { widgets: { id: string; kind: string; target?: string }[] };
+    const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target)!;
+    failing = false;
+    const groups = (await api(page, "group.list")) as { id: string; name: string }[];
+    // the right-click reads the lists again: this time the groups come
+    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+    const picker = page.getByRole("dialog", { name: "Réglages du widget" }).getByLabel("Pilote");
+    await expect(picker).toBeEnabled();
+    await expect(picker).toHaveValue(dca.target!);
+    await expect(picker.locator("option")).toHaveCount(groups.length + 1); // « — » and every group
+    await page.keyboard.press("Escape");
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  // the 500s the test made are the only console errors
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: a widget whose group is gone is said so, even once the show has no group left", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const group = ((await api(page, "group.list")) as { id: string }[])[0]!;
+  await api(page, "dashboard.put", { dashboard: { id: "t54-group-gone", name: "Groupe parti", columns: 12, widgets: [{ id: "z", kind: "zones", x: 0, y: 0, w: 6, h: 3, target: group.id }] } });
+  // the show's last group deleted, as the page reads it: no group at all
+  await page.route("**/api/plugins/light/commands/group.list", (route) => route.fulfill({ json: { ok: true, result: [] } }));
+  try {
+    await page.reload();
+    await page.locator(".dashboards .bar .tab", { hasText: "Groupe parti" }).click();
+    await expect(page.locator('.dgrid .cell[data-widget="z"]')).toContainText(`Groupe supprimé (${group.id})`);
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.list");
+    await api(page, "dashboard.delete", { id: "t54-group-gone" });
   }
   expect(errors).toEqual([]);
 });

@@ -1,17 +1,59 @@
 import { expect } from "chai";
-import { latestRead, type ReadList } from "../web/src/list-reads.js";
+import { latestRead, type ReadList, type ReadRetry } from "../web/src/list-reads.js";
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+const counters = (): Record<ReadList, number> => ({ looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 });
+/** A clock run by hand: the retries wait until the test runs them. */
+function retrying() {
+  const waiting: { fn: () => void; ms: number }[] = [];
+  const errors: string[] = [];
+  const retry: ReadRetry = { onError: (e) => errors.push(e.message), delayMs: 500, later: (fn, ms) => waiting.push({ fn, ms }) };
+  return { retry, waiting, errors, tick: () => waiting.splice(0).forEach((w) => w.fn()) };
+}
 
 describe("list reads", () => {
   it("applies a read only if no newer read of the same list started meanwhile", async () => {
-    const counters: Record<ReadList, number> = { looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 };
+    const c = counters();
+    const { retry } = retrying();
     const applied: string[] = [];
     let first!: (v: string) => void;
-    latestRead(counters, "looks", new Promise<string>((r) => (first = r)), (v) => applied.push(v));
-    latestRead(counters, "looks", Promise.resolve("new"), (v) => applied.push(v));
-    latestRead(counters, "groups", Promise.resolve("groups"), (v) => applied.push(v));
+    latestRead(c, "looks", () => new Promise<string>((r) => (first = r)), (v) => applied.push(v), retry);
+    latestRead(c, "looks", () => Promise.resolve("new"), (v) => applied.push(v), retry);
+    latestRead(c, "groups", () => Promise.resolve("groups"), (v) => applied.push(v), retry);
     first("old");
-    latestRead(counters, "faders", Promise.reject(new Error("down")), (v) => applied.push(String(v))); // a failed read: nothing
-    await new Promise((r) => setTimeout(r, 0));
+    await flush();
     expect(applied).to.deep.equal(["new", "groups"]);
+  });
+
+  it("tries a failed read once more after a short wait, then says it", async () => {
+    const c = counters();
+    const { retry, waiting, errors, tick } = retrying();
+    let calls = 0;
+    const applied: string[] = [];
+    latestRead(c, "groups", () => (++calls === 1 ? Promise.reject(new Error("down")) : Promise.resolve("back")), (v) => applied.push(v), retry);
+    await flush();
+    expect([calls, waiting.map((w) => w.ms), errors]).to.deep.equal([1, [500], []]);
+    tick();
+    await flush();
+    expect([calls, applied, errors]).to.deep.equal([2, ["back"], []]); // the second try read it
+
+    latestRead(c, "faders", () => Promise.reject(new Error("still down")), (v) => applied.push(String(v)), retry);
+    await flush();
+    tick();
+    await flush();
+    expect(errors).to.deep.equal(["still down"]); // twice: said, once
+  });
+
+  it("drops a failed read overtaken by a newer one: the newer one decides", async () => {
+    const c = counters();
+    const { retry, waiting, errors, tick } = retrying();
+    const applied: string[] = [];
+    latestRead(c, "looks", () => Promise.reject(new Error("old")), (v) => applied.push(v), retry);
+    await flush();
+    latestRead(c, "looks", () => Promise.resolve("new"), (v) => applied.push(v), retry); // while the first waits to retry
+    await flush();
+    tick();
+    await flush();
+    expect([applied, errors, waiting]).to.deep.equal([["new"], [], []]);
   });
 });

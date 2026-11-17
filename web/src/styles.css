@@ -3201,6 +3201,7 @@ header.top .role {
 }
 button:disabled,
 button[aria-disabled="true"],
+select:disabled,
 .pad[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
