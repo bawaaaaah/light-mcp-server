@@ -9,6 +9,7 @@ import type { ShowRuntime } from "../show/runtime.js";
 import type { Collection } from "../data/store.js";
 import { mappingInputKey, type Mapping } from "../midi/mapping.js";
 import type { Song } from "../songs/songs.js";
+import type { Look } from "../show/model.js";
 import { deltaE, LOW_CONTRAST } from "../knowledge/knowledge.js";
 import { AMBIANCE, duplicateLabels, embeddedIntentions, originWord, refKey, resolveIntention, strictHint, type IntentionEntry, type ResolvedIntention } from "../knowledge/intentions.js";
 import { intentionUsesByKey } from "../show/references.js";
@@ -32,13 +33,13 @@ export interface ShowLintDeps {
   intentions: IntentionStores;
   /** The intentions the open show sees, every layer stacked (design-commands.ts, showStack). */
   stack: () => Map<string, IntentionEntry>;
+  /** The open show's songs and looks, as the intentions name them (design-commands.ts). */
+  showParts: () => { songs: Song[]; looks: Look[] };
   /** `colourKnown` (T41): whether a colour preset id is one the open show sees. */
   colourKnown?: ((id: string) => boolean) | undefined;
 }
 
-export function registerShowLint(reg: CommandRegistry, { runtime, songs, mappings, intentions, stack, colourKnown }: ShowLintDeps): void {
-  const showParts = () => ({ songs: songs.list(), looks: runtime.looks.list() });
-
+export function registerShowLint(reg: CommandRegistry, { runtime, songs, mappings, intentions, stack, showParts, colourKnown }: ShowLintDeps): void {
   reg.register({
     name: "show.lint",
     title: "Vérifier le show",

@@ -393,7 +393,7 @@ export function registerDesignCommands(reg: CommandRegistry, runtime: ShowRuntim
     },
   });
 
-  registerShowLint(reg, { runtime, songs, mappings, intentions, stack, colourKnown });
+  registerShowLint(reg, { runtime, songs, mappings, intentions, stack, showParts, colourKnown });
 
   reg.register({
     name: "show.autopresets",
