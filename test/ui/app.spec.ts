@@ -4120,9 +4120,11 @@ test("AbleSet answering: a song is sent there from the Chants page", async ({ pa
       beat = setInterval(() => ableset.send(encodeOsc({ address: "/heartbeat", args: [] }), port, rinfo.address), 500);
     }
   });
-  await new Promise<void>((r) => ableset.bind(39999, "127.0.0.1", r));
+  // on a port of its own: another suite running at the same time has its fake AbleSet too
+  await new Promise<void>((r) => ableset.bind(0, "127.0.0.1", r));
+  const before = (await api(page, "ableset.status")) as { port: number };
   try {
-    await api(page, "ableset.configure", { enabled: true, host: "127.0.0.1" });
+    await api(page, "ableset.configure", { enabled: true, host: "127.0.0.1", port: ableset.address().port });
     await page.locator("nav.pages button", { hasText: "Chants" }).click();
     const send = page.getByRole("button", { name: "AbleSet Chant test" });
     await expect(send).toBeVisible({ timeout: 8000 });
@@ -4131,7 +4133,7 @@ test("AbleSet answering: a song is sent there from the Chants page", async ({ pa
   } finally {
     if (beat) clearInterval(beat);
     ableset.close();
-    await api(page, "ableset.configure", { enabled: false });
+    await api(page, "ableset.configure", { enabled: false, port: before.port });
   }
   expect(errors).toEqual([]);
 });
