@@ -1256,6 +1256,28 @@ test("dashboards: a new one, a look dragged from the palette, undo and redo, a s
   expect(errors).toEqual([]);
 });
 
+test("dashboards: a snapshot widget gets its snapshot from the edit panel, as from its menu", async ({ page }) => {
+  const errors = watchErrors(page);
+  page.on("dialog", (d) => void d.accept());
+  await login(page);
+  await api(page, "snapshot.save", { name: "Cible essai" });
+  await page.getByRole("button", { name: "✎" }).click();
+  await page.getByRole("button", { name: "+ Nouveau" }).click();
+  await expect(page.locator(".dashboards .bar .tab.active")).toContainText("Nouveau dashboard");
+  await page.locator(".palette .chips:not(.bound) .chip", { hasText: "Instantané" }).click(); // added unbound, and selected
+  const panel = page.locator("section.editor:not(.many)");
+  await panel.locator("select").first().selectOption({ label: "Cible essai" });
+  await expect(page.locator(".dgrid .cell button.snapshot", { hasText: "Cible essai" })).toBeVisible();
+  await page.getByRole("button", { name: "✔" }).click();
+  await expect(page.locator(".dgrid button.snapshot", { hasText: "Cible essai" })).toBeVisible();
+  await page.getByRole("button", { name: "✎" }).click();
+  await page.locator(".dash-manage").getByRole("button", { name: "Supprimer" }).click();
+  await expect(page.locator(".dashboards .bar .tab", { hasText: "Nouveau dashboard" })).toHaveCount(0);
+  await page.getByRole("button", { name: "✕", exact: true }).first().click();
+  await api(page, "snapshot.delete", { id: "cible-essai" });
+  expect(errors).toEqual([]);
+});
+
 test("refuses a wrong PIN, then logs in", async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto("/");

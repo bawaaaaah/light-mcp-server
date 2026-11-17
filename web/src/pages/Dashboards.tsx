@@ -577,7 +577,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           w={sel}
           columns={dash?.columns ?? 12}
           step={step}
-          lists={{ looks, groups, faders, snapshots: [], targets, positions }}
+          lists={{ looks, groups, faders, snapshots, targets, positions }}
           onPatch={(patch) => updateWidget(sel.id, patch)}
           onRemove={() => {
             update((d) => ({ ...d, widgets: d.widgets.filter((w) => w.id !== sel.id) }));
