@@ -7,7 +7,7 @@ import { defineConfig } from "@playwright/test";
 // (on other ports): a build empties web/dist, and the pages the first suite loads meanwhile would come back missing.
 const port = Number(process.env.UI_PORT ?? 8799);
 const skipBuild = process.env.UI_SKIP_BUILD === "1";
-// without a build there, every page would answer 404: say why at once instead of 313 failures
+// without a build there, every page would answer 404: say why at once instead of every test failing
 if (skipBuild && !existsSync(new URL("web/dist/index.html", import.meta.url))) throw new Error("UI_SKIP_BUILD=1 but web/dist/index.html is missing: run `npm run build -w web` first");
 export default defineConfig({
   testDir: "test/ui",
