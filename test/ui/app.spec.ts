@@ -6751,6 +6751,30 @@ test("MIDI mapping: an older wheel to a level, its scale written by hand, keeps 
   expect(errors).toEqual([]);
 });
 
+test("Web MIDI: two tabs of one browser, only one relays; the other waits, then takes over", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, baseURL: `http://127.0.0.1:${PORT}`, locale: "fr-FR" });
+  // no MIDI device in the test browser: a Web MIDI access with no input, granted at once
+  await ctx.addInitScript(() => {
+    (navigator as unknown as { requestMIDIAccess: () => Promise<unknown> }).requestMIDIAccess = async () => ({ inputs: new Map(), outputs: new Map(), onstatechange: null });
+  });
+  const [first, second] = [await ctx.newPage(), await ctx.newPage()];
+  const status = (p: Page) => p.locator(".midi .bar [role=status]").filter({ hasText: /./ }).first();
+  try {
+    for (const p of [first, second]) {
+      await login(p);
+      await p.locator("nav.pages button", { hasText: "MIDI" }).click();
+    }
+    await first.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).check();
+    await expect(status(first)).not.toContainText("En attente");
+    await second.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).check();
+    await expect(status(second)).toContainText("En attente : un autre onglet de ce navigateur relaie déjà");
+    await first.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).uncheck(); // the first stops: the second takes over
+    await expect(status(second)).not.toContainText("En attente");
+  } finally {
+    await ctx.close();
+  }
+});
+
 test("Web MIDI: a browser's connection closed lets go of what its wheel held, or keeps it, as the « web » setting says", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -6765,7 +6789,12 @@ test("Web MIDI: a browser's connection closed lets go of what its wheel held, or
       const ws = new WebSocket(`ws://${host}/api/ws?ticket=${encodeURIComponent(ticket)}`, "light.control.v1.json");
       const id = await new Promise<string>((ok) => (ws.onmessage = (ev) => ok((JSON.parse(String(ev.data)) as { connection: string }).connection)));
       (globalThis as unknown as { relay: WebSocket }).relay = ws;
-      await fetch("/api/plugins/light/commands/midi.in", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ port: "Web MIDI · Pad", bytes: [0xea, 0, 127], client: id }) });
+      // over the connection itself (REST over the WebSocket), as the page relays: the server knows the connection from the socket
+      await new Promise<void>((ok) => {
+        ws.onmessage = (ev) => (JSON.parse(String(ev.data)) as { t: string; id?: number }).t === "res" && ok();
+        ws.send(JSON.stringify({ t: "req", id: 1, method: "POST", path: "/api/plugins/light/commands/midi.in", body: { port: "Web MIDI · Pad", bytes: [0xea, 0, 127] } }));
+      });
+      return id;
     }, new URL(page.url()).host);
   const closeTab = () => page.evaluate(() => (globalThis as unknown as { relay: WebSocket }).relay.close());
   try {

@@ -9,9 +9,10 @@ import { Channel, type ChannelDeps, type SocketLike } from "./ws-channel";
 
 const browser: ChannelDeps = {
   ticket: wsTicket,
-  socket: (ticket, protocol) => {
+  socket: (ticket, protocol, previous) => {
     const scheme = location.protocol === "https:" ? "wss" : "ws";
-    return new WebSocket(`${scheme}://${location.host}/api/ws?ticket=${encodeURIComponent(ticket)}`, protocol) as SocketLike;
+    const replaces = previous ? `&previous=${encodeURIComponent(previous)}` : "";
+    return new WebSocket(`${scheme}://${location.host}/api/ws?ticket=${encodeURIComponent(ticket)}${replaces}`, protocol) as SocketLike;
   },
   later: (fn, ms) => setTimeout(fn, ms),
   cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout> | undefined),

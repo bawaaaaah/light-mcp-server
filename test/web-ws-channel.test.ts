@@ -5,6 +5,8 @@ class FakeSocket implements SocketLike {
   binaryType = "blob";
   readyState = 1;
   sent: Record<string, unknown>[] = [];
+  /** The connection it said it replaces. */
+  previous: string | undefined;
   closed = false;
   onmessage: ((ev: { data: unknown }) => void) | null = null;
   onclose: (() => void) | null = null;
@@ -32,8 +34,9 @@ function harness() {
   const timers: { fn: () => void; ms: number; cancelled: boolean }[] = [];
   const deps: ChannelDeps = {
     ticket: () => new Promise<string>((resolve, reject) => tickets.push({ resolve, reject })),
-    socket: () => {
+    socket: (_ticket, _protocol, previous) => {
       const s = new FakeSocket();
+      s.previous = previous;
       sockets.push(s);
       return s;
     },
@@ -171,5 +174,50 @@ describe("web live link (ws-channel): one socket per connection, whatever the or
     expect(heard).to.deep.equal([]);
     expect(status).to.deep.equal([]);
     expect(sockets[1]!.sent).to.deep.equal([]);
+  });
+});
+
+describe("web live link: its connection id, and what is relayed over it", () => {
+  /** Connected and online: « hello » heard (no subscription to wait for). */
+  const online = async (h: ReturnType<typeof harness>, n: number, id: string) => {
+    if (n === 0) void h.channel.connect();
+    h.tickets[n]!.resolve(`t${n}`);
+    await settle();
+    h.sockets[n]!.hear({ t: "hello", connection: id });
+  };
+
+  it("sets the id at « hello », clears it at close(), and names the lost one when it reconnects", async () => {
+    const h = harness();
+    await online(h, 0, "c1");
+    expect(h.channel.connectionId).to.equal("c1");
+    h.sockets[0]!.drop(); // the network went
+    expect(h.channel.connectionId).to.equal(undefined);
+    await h.tick(); // the reconnection
+    h.tickets[1]!.resolve("t1");
+    await settle();
+    expect(h.sockets[1]!.previous).to.equal("c1"); // the hub lets c1 go at once
+    h.sockets[1]!.hear({ t: "hello", connection: "c2" });
+    expect(h.channel.connectionId).to.equal("c2");
+    h.channel.close();
+    expect(h.channel.connectionId).to.equal(undefined);
+  });
+
+  it("relays a request over the socket while online; refuses it at once while reconnecting, never later", async () => {
+    const h = harness();
+    await online(h, 0, "c1");
+    const answer = h.channel.request("POST", "/api/plugins/light/commands/midi.in", { port: "Web MIDI · Pad", bytes: [0xe0, 0, 127] });
+    const req = h.sockets[0]!.sent.find((m) => m.t === "req")!;
+    expect(req).to.deep.include({ method: "POST", path: "/api/plugins/light/commands/midi.in" });
+    h.sockets[0]!.hear({ t: "res", id: req.id, status: 200, body: { ok: true } });
+    expect(await answer).to.deep.equal({ status: 200, body: { ok: true } });
+    h.sockets[0]!.drop();
+    let refused = "";
+    await h.channel.request("POST", "/x", {}).catch((e: Error) => (refused = e.message));
+    expect(refused).to.equal("offline");
+    await h.tick();
+    h.tickets[1]!.resolve("t1");
+    await settle();
+    h.sockets[1]!.hear({ t: "hello", connection: "c2" });
+    expect(h.sockets[1]!.sent.filter((m) => m.t === "req")).to.deep.equal([]); // nothing kept for later
   });
 });

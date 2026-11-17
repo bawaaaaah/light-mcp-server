@@ -25,8 +25,8 @@ export interface SocketLike {
 export interface ChannelDeps {
   /** A one-time ticket for the socket's address. */
   ticket: () => Promise<string>;
-  /** Opens the socket for a ticket and a subprotocol. */
-  socket: (ticket: string, protocol: string) => SocketLike;
+  /** Opens the socket for a ticket and a subprotocol; `previous`: the connection it replaces (a reconnection). */
+  socket: (ticket: string, protocol: string, previous?: string) => SocketLike;
   later: (fn: () => void, ms: number) => unknown;
   cancel: (handle: unknown) => void;
 }
@@ -52,8 +52,14 @@ export class Channel {
    */
   private generation = 0;
   private readonly statusListeners = new Set<(up: boolean) => void>();
-  /** The id the hub gave this connection in « hello »: what a request relayed for it names (a Web MIDI relay). */
+  /** The id the hub gave this connection in « hello »; undefined while there is none (closed, reconnecting). */
   connectionId: string | undefined;
+  /** The connection lost, named when opening the next one: the hub lets it go at once (what it relayed released now). */
+  private previousId: string | undefined;
+  /** Up: « hello » heard and every subscription taken; what is relayed waits for it (and is dropped meanwhile). */
+  online = false;
+  /** Requests on their way over this connection (REST over the WebSocket), by id. */
+  private readonly requests = new Map<number, { resolve: (r: { status: number; body: unknown }) => void; reject: (e: Error) => void }>();
 
   constructor(
     private readonly channel: "control" | "stream",
@@ -67,6 +73,7 @@ export class Channel {
   }
 
   private setStatus(up: boolean): void {
+    this.online = up;
     for (const l of this.statusListeners) l(up);
   }
 
@@ -92,7 +99,7 @@ export class Channel {
     }
     // closed (or closed and connected again) while the ticket was on its way: no socket left behind
     if (!this.current(gen)) return;
-    const ws = this.deps.socket(ticket, `light.${this.channel}.v1.${this.codec}`);
+    const ws = this.deps.socket(ticket, `light.${this.channel}.v1.${this.codec}`, this.previousId);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     /** The subscriptions sent on « hello » the hub has not answered yet: the link is up once it has taken them all. */
@@ -107,9 +114,10 @@ export class Channel {
     };
     ws.onmessage = (ev) => {
       if (!this.current(gen)) return;
-      const msg = (typeof ev.data === "string" ? JSON.parse(ev.data) : decode(new Uint8Array(ev.data as ArrayBuffer))) as { t: string; id?: number; topic?: string; data?: unknown; connection?: string };
+      const msg = (typeof ev.data === "string" ? JSON.parse(ev.data) : decode(new Uint8Array(ev.data as ArrayBuffer))) as { t: string; id?: number; topic?: string; data?: unknown; connection?: string; status?: number; body?: unknown; error?: string };
       if (msg.t === "hello") {
         this.connectionId = msg.connection;
+        this.previousId = undefined;
         // subscribed again first, and « up » only once the hub has them: whoever reads again on « up » hears what
         // follows. A read sent on the « sub » alone can reach the hub first (another connection, and a busy hub
         // inflates a compressed frame later), and a change made in between would be neither read nor heard.
@@ -123,13 +131,22 @@ export class Channel {
         else fallback = this.deps.later(up, ACK_FALLBACK_MS);
       } else if ((msg.t === "ack" || msg.t === "err") && msg.id !== undefined && pending?.delete(msg.id)) {
         if (!pending.size) up();
+      } else if ((msg.t === "res" || msg.t === "err") && msg.id !== undefined && this.requests.has(msg.id)) {
+        const r = this.requests.get(msg.id)!;
+        this.requests.delete(msg.id);
+        if (msg.t === "res") r.resolve({ status: msg.status ?? 0, body: msg.body });
+        else r.reject(new Error(msg.error ?? "refused"));
       } else if (msg.t === "evt" && msg.topic) {
         for (const h of this.subs.get(msg.topic)?.handlers ?? []) h(msg.data);
       }
     };
     ws.onclose = () => {
       pending = null;
-      if (this.current(gen)) this.connectionId = undefined;
+      if (this.current(gen)) {
+        this.previousId = this.connectionId ?? this.previousId;
+        this.connectionId = undefined;
+      }
+      this.failRequests();
       this.deps.cancel(fallback);
       // a socket of an older connection: the current one says its own status and reconnects itself
       if (!this.current(gen)) return;
@@ -143,7 +160,33 @@ export class Channel {
     this.generation++;
     this.ws?.close();
     this.ws = null;
+    this.connectionId = undefined;
+    this.previousId = undefined;
+    this.failRequests();
     this.setStatus(false);
+  }
+
+  /** Drops the socket and opens a new one (the hub refused what was sent over it): the old one is named, let go at once. */
+  reconnect(): void {
+    if (!this.closed) this.ws?.close();
+  }
+
+  /**
+   * A REST call over this connection (« req »), so the hub knows which connection it came from: only while online — a
+   * call made while reconnecting is refused at once, never kept for later (a wheel must not fire late).
+   */
+  request(method: "POST", path: string, body: unknown): Promise<{ status: number; body: unknown }> {
+    if (!this.online || this.ws?.readyState !== OPEN) return Promise.reject(new Error("offline"));
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.requests.set(id, { resolve, reject });
+      this.send({ t: "req", id, method, path, body });
+    });
+  }
+
+  private failRequests(): void {
+    for (const r of this.requests.values()) r.reject(new Error("offline"));
+    this.requests.clear();
   }
 
   private send(msg: Record<string, unknown>): void {
