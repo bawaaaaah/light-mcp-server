@@ -1,0 +1,174 @@
+/**
+ * MIDI in the light plugin (docs/specs/midi.md): the hub and its ports, the show's mappings turned into commands,
+ * the journal of what each message did, and the feedback that keeps the controllers' LEDs on the real state.
+ */
+import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "../commands/midi-commands.js";
+import type { CommandRegistry } from "../commands/registry.js";
+import type { DmxEngine } from "../engine/dmx-engine.js";
+import { MidiHub, type HubMessage } from "../midi/hub.js";
+import { argText, MappingSchema, type Mapping, type MidiMapper } from "../midi/mapping.js";
+import type { MidiMessage } from "../midi/parse.js";
+import type { OutputRouter } from "../output/output-router.js";
+import type { ShowRuntime } from "../show/runtime.js";
+import { ClockOut } from "../timing/clock-out.js";
+import type { TempoClock } from "../timing/tempo.js";
+import type { Collection, FolderStore } from "../data/store.js";
+import type { LoopDelay } from "../../../core/loop-delay.js";
+import { say } from "../../../core/lang.js";
+import type { ConfigAccess, LightConfig } from "./config.js";
+import { frozenFor } from "./motion-summary.js";
+
+const MIDI_JOURNAL_SIZE = 300;
+
+export interface MidiJournalEntry {
+  at: number;
+  port: string;
+  source: string;
+  msg: MidiMessage;
+  /** The mappings it matched (a note off in latch matches and does nothing). */
+  matched: { id: string; label: string; mode: string }[];
+  calls: { command: string; target: string; ok: boolean; error?: string }[];
+  /** From its arrival in the handler to its commands done, in ms. */
+  ms: number;
+}
+
+/** The ports of the active MIDI profile, as the hub takes them. */
+export function activeMidiProfile(config: LightConfig): { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: MidiProfile["rtp"] } {
+  const p = config.midi.profiles[config.midi.active] ?? MidiProfileSchema.parse({});
+  return { inputs: p.inputs, feedbackOutput: p.feedbackOutput, clockOutput: p.clockOutput, rtp: p.rtp };
+}
+
+export interface MidiWiringDeps {
+  commands: CommandRegistry;
+  engine: DmxEngine;
+  router: OutputRouter;
+  runtime: ShowRuntime;
+  show: FolderStore;
+  mapper: MidiMapper;
+  tempo: TempoClock;
+  loopDelay: LoopDelay;
+  config: ConfigAccess;
+  /** Test seam: no native MIDI. */
+  midiNative?: null;
+  publish: (type: string, payload: unknown) => void;
+  /** The plugin's state, published when a Program Change selects a rule program. */
+  state: () => unknown;
+}
+
+/**
+ * Opens the show's mappings and the hub, listens to it and registers the midi.* commands (in this order: the
+ * mappings are loaded before the first message can come).
+ */
+export class MidiWiring {
+  readonly hub: MidiHub;
+  readonly mappings: Collection<Mapping>;
+  /** The last MIDI messages and what each did (midi.journal, the MIDI page's monitor). */
+  private readonly journal: MidiJournalEntry[] = [];
+  /** The light's tempo as MIDI clock, to the profile's clock output (none set: nothing is sent). */
+  private readonly clockOut = new ClockOut(() => this.deps.tempo.state(), (bytes) => this.hub.sendClock(bytes));
+  private clockTimer: NodeJS.Timeout | undefined;
+
+  constructor(private readonly deps: MidiWiringDeps) {
+    const { commands, show, mapper, config, publish } = deps;
+    const mappings = show.collection("mappings", MappingSchema);
+    this.mappings = mappings;
+    mapper.setMappings(mappings.list());
+    const hub = new MidiHub(activeMidiProfile(config.get()), deps.midiNative === null ? { native: null } : {});
+    this.hub = hub;
+    hub.on("message", (m: HubMessage) => this.onMessage(m));
+    hub.on("ports", () => publish("midi", { status: hub.status() }));
+    hub.on("warning", (w: string) => publish("midi", { warning: w }));
+    registerMidiCommands(commands, {
+      journal: () => this.journal,
+      loopDelay: () => deps.loopDelay.stats(),
+      hub,
+      mapper,
+      mappings,
+      tempo: deps.tempo,
+      profiles: () => config.get().midi.profiles,
+      activeProfile: () => config.get().midi.active,
+      selectProfile: async (name) => {
+        const current = config.get();
+        if (!current.midi.profiles[name]) throw new Error(say(`profil inconnu : ${name}`, `unknown profile: ${name}`));
+        config.put({ ...current, midi: { ...current.midi, active: name } });
+        await hub.setConfig(activeMidiProfile(config.get()));
+        await config.save();
+      },
+      saveProfile: async (name, profile) => {
+        const current = config.get();
+        config.put({ ...current, midi: { ...current.midi, profiles: { ...current.midi.profiles, [name]: profile } } });
+        if (name === config.get().midi.active) await hub.setConfig(activeMidiProfile(config.get()));
+        await config.save();
+      },
+    });
+  }
+
+  /** Every millisecond: a clock every ~21 ms at 120 BPM, measured within ±1 ms of its time. */
+  startClock(): void {
+    this.clockTimer = setInterval(() => activeMidiProfile(this.deps.config.get()).clockOutput && this.clockOut.tick(), 1);
+    this.clockTimer.unref();
+  }
+
+  stopClock(): void {
+    if (this.clockTimer) clearInterval(this.clockTimer);
+  }
+
+  /** Sends MIDI feedback for state changes (all of it with `full`); silent on standby, where QLC+ holds the controllers. */
+  syncFeedback(full = false): void {
+    const { router, mapper, runtime } = this.deps;
+    if (router.isStandby()) return;
+    const out: number[][] = [];
+    for (const m of mapper.list()) {
+      const target = argText(m.on.args.id);
+      if (m.on.command === "look.go") out.push(...mapper.syncState(m.id, runtime.isActive(target)));
+      else if (m.on.command === "motion.freeze") out.push(...mapper.syncState(m.id, frozenFor(runtime, m.on.args)));
+      else if (m.on.command === "group.level") {
+        const g = runtime.groups.get(target);
+        if (g?.master) out.push(...mapper.syncState(m.id, !g.master.mute && g.master.level > 0, g.master.level));
+      }
+    }
+    this.hub.sendFeedback(full ? mapper.allFeedback() : out);
+  }
+
+  /**
+   * Every MIDI message: tempo follows the clock; mappings turn the rest into commands. What each
+   * message did (the mappings it matched, each command and whether it worked, how long it took)
+   * goes to the monitor and the journal: a note that « did not work » shows why.
+   */
+  private onMessage(m: HubMessage): void {
+    const { commands, engine, router, runtime, mapper, tempo, publish } = this.deps;
+    const started = performance.now();
+    tempo.handleMidi(m.msg);
+    const t = m.msg.type;
+    if (t === "clock" || t === "start" || t === "stop" || t === "continue" || t === "songposition") return;
+    // A Program Change selects the rule program carrying that number on that channel (no mapping needed).
+    if (m.msg.type === "programchange") {
+      const program = runtime.programFor(m.msg.channel, m.msg.program);
+      if (program && runtime.selectProgram(program.id)) {
+        engine.requestFrame();
+        publish("state", this.deps.state());
+      }
+    }
+    const out = mapper.handle(m.msg, m.port);
+    if (!router.isStandby() && m.source !== "os2l") this.hub.sendFeedback(out.feedback); // a controller's LEDs, not the DJ's
+    const calls = out.calls.map((call) => {
+      const target = argText(call.args.id ?? call.args.section);
+      return commands.invoke(call.command, call.args, { origin: m.source === "os2l" ? "os2l" : "midi", can: () => true }).then(
+        () => ({ command: call.command, target, ok: true }),
+        (err: Error) => {
+          publish("midi", { error: `${call.command} : ${err.message}` });
+          return { command: call.command, target, ok: false, error: err.message };
+        },
+      );
+    });
+    // in the journal at once, in the order of arrival; its commands' outcome filled in when done
+    const entry: MidiJournalEntry = { at: Date.now(), port: m.port, source: m.source, msg: m.msg, matched: out.matched, calls: [], ms: 0 };
+    this.journal.push(entry);
+    if (this.journal.length > MIDI_JOURNAL_SIZE) this.journal.shift();
+    void Promise.all(calls).then((done) => {
+      entry.calls = done;
+      entry.ms = Math.round((performance.now() - started) * 100) / 100;
+      publish("midi", { monitor: entry });
+    });
+  }
+}

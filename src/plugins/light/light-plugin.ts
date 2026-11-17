@@ -1,8 +1,11 @@
 /**
  * The light plugin: engine + output + command layer, exposed as MCP tools, HTTP routes and live
  * WebSocket topics — all generated from the command registry (docs/architecture.md, principle 2).
+ * The constructor wires the pieces in a fixed order (wiring/: MIDI, the knowledge stores, the activity log,
+ * the external sync, the live publications, the automatic backup): the order of the command subscriptions
+ * and of the registrations is part of the behaviour (tool list, OSC table, who hears a command first).
  */
-import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import express, { type Request, type Response, type Router } from "express";
 import { applyRestore, packArchive, previewRestore, readArchive, restoreBackupDir, type RestorePreview, type RestoreResult, type RestoreTargets } from "./data/archive.js";
 import { definitionDirsFor, FixturePolicySchema, type FixturePolicy } from "./data/archive-fixtures.js";
@@ -11,50 +14,37 @@ import type { AuthMiddleware } from "../../core/auth.js";
 import type { EventBus } from "../../core/event-bus.js";
 import { HttpError } from "../../core/http-errors.js";
 import type { LiveTopic, McpPlugin, PluginHealth } from "../../core/plugin.js";
-import { throttleMerge } from "../../core/throttle.js";
 import { summarizeDescription, type PluginToolCatalogue } from "../../core/tool-catalogue.js";
 import type { ScopedConfigStore } from "../../core/config-store.js";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { registerCoreCommands } from "./commands/core-commands.js";
-import { MidiProfileSchema, registerMidiCommands, type MidiProfile } from "./commands/midi-commands.js";
 import { recallStartupSnapshot, registerShowCommands } from "./commands/show-commands.js";
 import { registerTracksCommands } from "./commands/tracks-commands.js";
 import { registerMoveCommands } from "./commands/move-commands.js";
 import { registerTargetCommands } from "./commands/target-commands.js";
-import { backupPath, registerFileCommands, runAutoBackup, sharedWith, showsOnVenueOrThrow, type FileServices } from "./commands/file-commands.js";
+import { backupPath, registerFileCommands, sharedWith, showsOnVenueOrThrow, type FileServices } from "./commands/file-commands.js";
 import { registerFixtureModeCommands, showFolder } from "./commands/fixture-mode-commands.js";
-import { ActivityLog, commandNotice, undoOf } from "./activity.js";
+import { ActivityLog, commandNotice } from "./activity.js";
 import { PROMPTS, promptArgs } from "./mcp-prompts.js";
 import { registerImportCommands } from "./commands/import-commands.js";
 import { registerLibraryCommands } from "./commands/library-commands.js";
 import { registerSelftestCommands } from "./commands/selftest-commands.js";
 import { registerExportCommands } from "./commands/export-commands.js";
-import { followPosition, registerSongCommands, type SongServices } from "./commands/song-commands.js";
+import { registerSongCommands, type SongServices } from "./commands/song-commands.js";
 import { SetlistSchema, SongSchema } from "./songs/songs.js";
-import { freshIntentionId, intentionReferences, registerDesignCommands, showStack, type IntentionStores } from "./commands/design-commands.js";
+import { registerDesignCommands, type IntentionStores } from "./commands/design-commands.js";
 import { registerColourPresetCommands, type ColourStores } from "./commands/colour-preset-commands.js";
-import { citedColours, ColourPresetSchema, favoritesInOrder, newColourId, stackColours } from "./show/colour-presets.js";
-import { loadKnowledgeLayers, type KnowledgeLayers } from "./knowledge/knowledge.js";
-import { AMBIANCE, ambiguousRefs, embeddedIntentions, IntentionSchema, labelOfRef, labelsOfRefs, migrateMood, migrateTags, newIntentionId, refKey, stackIntentions } from "./knowledge/intentions.js";
-import { intentionUsesByKey } from "./show/references.js";
-import { machineColourUsers, machineIntentionUsers } from "./show/other-shows.js";
 import { ShowRuntime } from "./show/runtime.js";
-import { motionEntries, motionKey } from "./show/motion-report.js";
-import { stricter, type MotionLockState } from "./show/motion-lock.js";
-import type { LockLevel } from "./engine/motion.js";
 import { groupsOfOtherShows } from "./show/shared-venue.js";
 import { ShowSettingsSchema } from "./show/model.js";
 import { Venue } from "./venue/venue.js";
-import { FolderStore, ID_RE, stableStringify } from "./data/store.js";
-import { MidiHub, type HubMessage } from "./midi/hub.js";
-import { argText, MappingSchema, MidiMapper, OS2L_PORT } from "./midi/mapping.js";
+import { FolderStore, ID_RE } from "./data/store.js";
+import type { MidiHub } from "./midi/hub.js";
+import { MappingSchema, MidiMapper } from "./midi/mapping.js";
 import { OscServer } from "./osc/server.js";
-import { Os2lServer } from "./os2l/server.js";
-import type { Os2lEvent } from "./os2l/codec.js";
-import { advertise, localHost } from "../../core/mdns.js";
-import { ClockOut } from "./timing/clock-out.js";
-import { AbleSetClient } from "./ableset/ableset.js";
+import type { Os2lServer } from "./os2l/server.js";
+import type { AbleSetClient } from "./ableset/ableset.js";
 import { LinkListener } from "./link/link.js";
 import { TempoClock } from "./timing/tempo.js";
 import { dataRoot as defaultDataRoot } from "../../core/paths.js";
@@ -65,76 +55,23 @@ import { argsShape, CommandError, CommandRegistry, commandTitle, type CommandCon
 import { toolHints } from "./commands/tool-hints.js";
 import { DmxEngine } from "./engine/dmx-engine.js";
 import { OutputRouter, type OutputConfig } from "./output/output-router.js";
-import { DmxUsbOutputs, portPath, type SerialBinding } from "./output/dmx-usb.js";
+import { DmxUsbOutputs, type SerialBinding } from "./output/dmx-usb.js";
 import { LoopDelay } from "../../core/loop-delay.js";
-import type { MidiMessage } from "./midi/parse.js";
-
-const MIDI_JOURNAL_SIZE = 300;
-
-export interface MidiJournalEntry {
-  at: number;
-  port: string;
-  source: string;
-  msg: MidiMessage;
-  /** The mappings it matched (a note off in latch matches and does nothing). */
-  matched: { id: string; label: string; mode: string }[];
-  calls: { command: string; target: string; ok: boolean; error?: string }[];
-  /** From its arrival in the handler to its commands done, in ms. */
-  ms: number;
-}
 import { say } from "../../core/lang.js";
+import { LightConfigSchema, type ConfigAccess, type LightConfig } from "./wiring/config.js";
+import { MidiWiring } from "./wiring/midi-wiring.js";
+import { attachSongIntentions, intentionLineLabel, machineRestoreHooks, migrateIntentionWords, openColours, openIntentions, showExtraFiles, showIntentionHooks } from "./wiring/knowledge-wiring.js";
+import { activityFile, restoreActivity, wireActivity, writeActivity } from "./wiring/activity-wiring.js";
+import { ExternalSync } from "./wiring/external-sync.js";
+import { wireLivePublications } from "./wiring/live-publications.js";
+import { AutoBackup } from "./wiring/auto-backup.js";
+import { motionLockSummary, movingHeadsSummary, type MotionLockSummary } from "./wiring/motion-summary.js";
+import { LIGHT_INSTRUCTIONS, registerMcpResources } from "./wiring/mcp-resources.js";
+
+export { LightConfigSchema, type LightConfig } from "./wiring/config.js";
+export type { MidiJournalEntry } from "./wiring/midi-wiring.js";
 
 export const PLUGIN_ID = "light";
-/** First look for the day's automatic backup after start (a short test server never writes one), then hourly. */
-const AUTO_BACKUP_FIRST_MS = 5 * 60_000;
-const AUTO_BACKUP_EVERY_MS = 3600_000;
-
-const RouteSchema = z.object({
-  universe: z.number().int().min(1),
-  artnet: z.object({ portAddress: z.number().int().min(0).max(32767), send: z.enum(["auto", "broadcast", "nodes"]).optional(), targets: z.array(z.string()).optional(), broadcast: z.boolean().optional() }).optional(),
-  sacn: z.object({ universe: z.number().int().min(1).max(63999), priority: z.number().int().min(0).max(200).optional(), unicast: z.array(z.string()).optional() }).optional(),
-  usb: z.object({ path: z.string().min(1).transform((p) => portPath(p)), kind: z.enum(["open", "pro"]) }).optional(),
-});
-
-export const LightConfigSchema = z.object({
-  universes: z.number().int().min(1).max(16).default(4),
-  output: z
-    .object({
-      bindAddress: z.string().optional(),
-      artSync: z.boolean().optional(),
-      sourceName: z.string().optional(),
-      /** Tests only: another Art-Net port, out of reach of the real consoles and nodes. */
-      artnetPort: z.number().int().min(1).max(65535).optional(),
-      routes: z.array(RouteSchema),
-      /** Standby: the show runs but nothing is sent (QLC+ or another console holds the nodes). Kept across restarts. */
-      standby: z.boolean().default(false),
-    })
-    .prefault({ routes: [{ universe: 1, artnet: { portAddress: 0 } }] }),
-  discovery: z.boolean().default(true),
-  /** Current show and venue (folders under <dataRoot>/shows and /venues). */
-  show: z.string().default("default"),
-  venue: z.string().default("default"),
-  midi: z
-    .object({
-      profiles: z.record(z.string(), MidiProfileSchema).prefault({ local: MidiProfileSchema.parse({ inputs: ["IAC"] }) }),
-      active: z.string().default("local"),
-    })
-    .prefault({}),
-  osc: z.object({ enabled: z.boolean().default(true), port: z.number().int().min(0).max(65535).default(9000), allow: z.array(z.string()).default([]) }).prefault({}),
-  /** DJ software (VirtualDJ…) over OS2L: TCP, any DJ computer of the network unless `allow` names some, as for OSC. */
-  os2l: z
-    .object({
-      enabled: z.boolean().default(true),
-      port: z.number().int().min(0).max(65535).default(7272),
-      allow: z.array(z.string()).default([]),
-      /** Announced on the network (mDNS, `_os2l._tcp`), so the DJ software finds the desk by itself. */
-      advertise: z.boolean().default(true),
-    })
-    .prefault({}),
-  /** AbleSet (setlist for Ableton Live) followed over OSC: off until the desk turns it on. */
-  ableset: z.object({ enabled: z.boolean().default(false), host: z.string().default("127.0.0.1"), port: z.number().int().min(1).max(65535).default(39051) }).prefault({}),
-});
-export type LightConfig = z.infer<typeof LightConfigSchema>;
 
 /** MCP tool name for a command: "dmx.set" → "light_dmx_set". */
 export const toolName = (command: string): string => `light_${command.replace(/\./g, "_")}`;
@@ -174,17 +111,7 @@ export class LightPlugin implements McpPlugin {
   readonly tempo = new TempoClock();
   readonly osc: OscServer;
   readonly os2l: Os2lServer;
-  /** The DJ pad's buttons met so far, with the look each plays and the state its pad shows. */
-  private readonly os2lButtons = new Map<string, { name: string; page?: string; look: string; on: boolean }>();
-  /** The DJ leads while the MIDI clock, the chosen source, is silent: it leads again when it comes back. */
-  private djOverMidi = false;
-  private os2lAnnounce: { stop: () => Promise<void> } | undefined;
-  /** The light's tempo as MIDI clock, to the profile's clock output (none set: nothing is sent). */
-  private readonly clockOut = new ClockOut(() => this.tempo.state(), (bytes) => this.hub.sendClock(bytes));
-  private clockTimer: NodeJS.Timeout | undefined;
   readonly ableset: AbleSetClient;
-  /** The last MIDI messages and what each did (midi.journal, the MIDI page's monitor). */
-  private readonly midiJournal: MidiJournalEntry[] = [];
   /** How long Node keeps a message waiting (midi.status → node). */
   readonly loopDelay = new LoopDelay();
   /** Ableton Link, listened to only while it is the tempo source: its tempo, and its beats once measured. */
@@ -193,18 +120,30 @@ export class LightPlugin implements McpPlugin {
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
   private readonly files: FileServices;
-  private changedSinceAutoBackup = false;
   readonly activity = new ActivityLog();
-  private autoBackupTimers: NodeJS.Timeout[] = [];
   private songs: SongServices | undefined;
   private readonly liveFile: LiveSnapshotFile;
   private readonly dataRoot: string;
+  /** MIDI in: the mappings, the journal and the controllers' feedback. */
+  private readonly midi: MidiWiring;
+  /** The DJ (OS2L), AbleSet and Ableton Link. */
+  private readonly sync: ExternalSync;
+  private readonly backups: AutoBackup;
   /** What was resumed at start-up after a restart, if anything. */
   resumed: { looks: string[]; blackout: boolean; song?: string; section?: string } | undefined;
 
   constructor(private readonly opts: LightPluginOptions) {
     this.config = LightConfigSchema.parse(opts.config?.get() ?? {});
     if (opts.standby !== undefined) this.config = { ...this.config, output: { ...this.config.output, standby: opts.standby } };
+    // the config as the wiring pieces see it: read at the time of use, kept on disk by save()
+    const config: ConfigAccess = {
+      get: () => this.config,
+      put: (next) => (this.config = next),
+      save: () => this.opts.config?.set(this.config),
+    };
+    const publish = (type: string, payload: unknown) => this.publish(type, payload);
+
+    // output and engine; every command's outcome first goes to the screens and the MIDI feedback
     this.engine = new DmxEngine(this.config.universes, { rateHz: opts.tickerRateHz });
     this.router = new OutputRouter(this.config.output as OutputConfig, new DmxUsbOutputs(opts.serial));
     this.commands.onStateChange = () => {
@@ -231,6 +170,7 @@ export class LightPlugin implements McpPlugin {
       },
     );
 
+    // show and venue
     const dataRoot = opts.dataRoot ?? defaultDataRoot();
     this.dataRoot = dataRoot;
     this.show = new FolderStore(path.join(dataRoot, "shows", this.config.show), path.join(dataRoot, "backups", "shows", this.config.show));
@@ -251,13 +191,7 @@ export class LightPlugin implements McpPlugin {
     const showApi = registerShowCommands(this.commands, this.engine, this.runtime, {
       sharedWith: otherShowsSharing,
       standby: () => this.router.isStandby(),
-      intentionReferences: (id) => intentionReferences(this.intentions, { songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, id),
-      migrateTags: (tags) => {
-        const stack = migratable();
-        return stack ? migrateTags(stack, tags).tags : tags;
-      },
-      newIntentionId: () => freshIntentionId(this.intentions),
-      ambiguousTags: (tags) => ambiguousRefs(showStack(this.intentions), tags.filter((t) => t.startsWith(AMBIANCE)).map((t) => t.slice(AMBIANCE.length))),
+      ...showIntentionHooks(() => this.intentions, () => ({ songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() })),
     });
     // a fixture's DMX mode, and a channel's working mode (T6); a mode changed « for every show » rewrites their folders
     registerFixtureModeCommands(this.commands, this.engine, this.runtime, showApi, {
@@ -268,36 +202,16 @@ export class LightPlugin implements McpPlugin {
     registerMoveCommands(this.commands, this.runtime, () => this.nextFrame());
     registerTargetCommands(this.commands, this.runtime);
     registerTracksCommands(this.commands, this.runtime);
-    const mappings = this.show.collection("mappings", MappingSchema);
-    this.mapper.setMappings(mappings.list());
-    this.hub = new MidiHub(this.activeMidiProfile(), opts.midiNative === null ? { native: null } : {});
-    this.hub.on("message", (m: HubMessage) => this.onMidi(m));
-    this.hub.on("ports", () => this.publish("midi", { status: this.hub.status() }));
-    this.hub.on("warning", (w: string) => this.publish("midi", { warning: w }));
-    registerMidiCommands(this.commands, {
-      journal: () => this.midiJournal,
-      loopDelay: () => this.loopDelay.stats(),
-      hub: this.hub,
-      mapper: this.mapper,
-      mappings,
-      tempo: this.tempo,
-      profiles: () => this.config.midi.profiles,
-      activeProfile: () => this.config.midi.active,
-      selectProfile: async (name) => {
-        if (!this.config.midi.profiles[name]) throw new Error(say(`profil inconnu : ${name}`, `unknown profile: ${name}`));
-        this.config = { ...this.config, midi: { ...this.config.midi, active: name } };
-        await this.hub.setConfig(this.activeMidiProfile());
-        await this.opts.config?.set(this.config);
-      },
-      saveProfile: async (name, profile) => {
-        this.config = { ...this.config, midi: { ...this.config.midi, profiles: { ...this.config.midi.profiles, [name]: profile } } };
-        if (name === this.config.midi.active) await this.hub.setConfig(this.activeMidiProfile());
-        await this.opts.config?.set(this.config);
-      },
-    });
+
+    // MIDI: the show's mappings, the hub, the midi.* commands
+    this.midi = new MidiWiring({ commands: this.commands, engine: this.engine, router: this.router, runtime: this.runtime, show: this.show, mapper: this.mapper, tempo: this.tempo, loopDelay: this.loopDelay, config, ...(opts.midiNative === null ? { midiNative: null } : {}), publish, state: () => this.state() });
+    this.hub = this.midi.hub;
+    const mappings = this.midi.mappings;
     registerSelftestCommands(this.commands, this.engine, this.runtime, () => mappings.list(), () => this.tempo.state().bpm);
     registerExportCommands(this.commands, this.runtime, () => mappings.list(), dataRoot);
-    this.songs = {
+
+    // songs and setlists
+    const songs: SongServices = {
       runtime: this.runtime,
       songs: this.show.collection("songs", SongSchema),
       setlists: this.show.collection("setlists", SetlistSchema),
@@ -308,65 +222,22 @@ export class LightPlugin implements McpPlugin {
       publish: (state) => this.publish("song", state),
       run: (command, args) => this.commands.invoke(command, args, { origin: "timeline", can: () => true }),
     };
-    registerSongCommands(this.commands, this.songs);
-    const knowledgePath = path.join(dataRoot, "private", "knowledge.json");
-    let kb: KnowledgeLayers | undefined;
-    // an unreadable private file: the shipped base alone, said by show.lint; nothing migrates meanwhile (T15b)
-    let privateError: string | undefined;
-    const readBase = (): KnowledgeLayers => {
-      try {
-        return loadKnowledgeLayers(knowledgePath);
-      } catch (err) {
-        privateError = `${path.relative(dataRoot, knowledgePath)} : ${(err as Error).message.split("\n")[0]}`;
-        return loadKnowledgeLayers();
-      }
-    };
-    // the intentions (T15): the files read once, the personal library (every show of this machine; its
-    // history pruned with the shows', backups/private/library) and the show's own (in its folder), read at every call
-    const personal = new FolderStore(path.join(dataRoot, "private"), path.join(dataRoot, "backups", "private", "library"));
-    const showIntentions = this.show.collection("intentions", IntentionSchema);
-    this.intentions = {
-      base: () => (kb ??= readBase()),
-      privateUnreadable: () => (this.intentions.base(), privateError),
-      personal: personal.collection("intentions", IntentionSchema),
-      show: showIntentions,
-      // each show reads the words of its songs and looks against this machine's intentions under its own (T15b)
-      machineUsers: () => machineIntentionUsers(dataRoot, (own) => stackIntentions(this.intentions.base(), this.intentions.personal.list(), own)),
-      current: () => this.config.show,
-      loadErrors: () => [
-        ...(privateError ? [say(`fichier privé des intentions : ${privateError} (seules les intentions livrées, de la bibliothèque et du show servent ; rien n'est migré tant qu'il est illisible)`, `private intentions file: ${privateError} (only the shipped, library and show intentions serve; nothing is migrated while it is unreadable)`)] : []),
-        ...personal.loadErrors.map((e) => say(`bibliothèque personnelle : ${e}`, `personal library: ${e}`)),
-        ...this.show.loadErrors.filter((e) => e.startsWith("intentions/")),
-      ],
-      newId: () => newIntentionId(this.opts.now?.() ?? Date.now()),
-    };
-    /** The intentions a write may migrate against: none while the private file is unreadable (a name could go astray). */
-    const migratable = () => (this.intentions.privateUnreadable?.() ? undefined : showStack(this.intentions));
-    // what names an intention, read and written by id (T15b): a song's mood and a look's ambiance: tags
-    // written by name become the id one intention only answers to, shown by its label
-    this.songs.intentionLabels = () => {
-      const stack = showStack(this.intentions);
-      return (mood) => labelsOfRefs(stack, mood);
-    };
-    this.songs.migrateMood = (mood) => {
-      const stack = migratable();
-      return stack ? migrateMood(stack, mood).mood : mood;
-    };
-    this.songs.ambiguousMood = (mood) => ambiguousRefs(showStack(this.intentions), mood);
-    registerDesignCommands(this.commands, this.runtime, this.songs.songs, () => mappings.list(), this.intentions, (id) => this.colours.show.has(id) || this.colours.personal.has(id));
-    // colour presets (T41): the show's own and the personal library's (data/private/colours), as the intentions
-    const songList = this.songs.songs;
-    this.colours = {
-      show: this.show.collection("colours", ColourPresetSchema),
-      personal: personal.collection("colours", ColourPresetSchema),
-      citing: () => ({ mappings: mappings.list(), songs: songList.list() }),
-      newId: () => newColourId(this.opts.now?.() ?? Date.now()),
-      otherShows: (id) => machineColourUsers(dataRoot, id, this.config.show),
-    };
+    this.songs = songs;
+    registerSongCommands(this.commands, songs);
+
+    // the knowledge: intentions (T15), then the colour presets (T41), the imports and the fixture library (T20b)
+    const knowledge = { dataRoot, show: this.show, currentShow: () => this.config.show, ...(opts.now ? { now: opts.now } : {}) };
+    const { personal, intentions } = openIntentions(knowledge);
+    this.intentions = intentions;
+    attachSongIntentions(songs, intentions);
+    registerDesignCommands(this.commands, this.runtime, songs.songs, () => mappings.list(), this.intentions, (id) => this.colours.show.has(id) || this.colours.personal.has(id));
+    this.colours = openColours({ ...knowledge, personal, mappings, songs: songs.songs });
     registerColourPresetCommands(this.commands, this.runtime, this.colours);
     registerImportCommands(this.commands, { runtime: this.runtime, show: this.show, mappings, mapper: this.mapper, tempo: this.tempo, importsDir: path.join(dataRoot, "imports"), fixturesDir: path.join(dataRoot, "fixtures"), ...(opts.now ? { now: opts.now } : {}) });
     // the fixture library (T20b): list, duplicates, duplicate, delete to a trash, merge (pick or alias)
     registerLibraryCommands(this.commands, { runtime: this.runtime, dataRoot, venue: () => this.config.venue, ...(opts.now ? { now: opts.now } : {}) });
+
+    // files: open, copy, archive, restore, backups
     this.files = {
       dataRoot,
       current: () => ({ show: this.config.show, venue: this.config.venue }),
@@ -387,186 +258,26 @@ export class LightPlugin implements McpPlugin {
       showExtra: () => this.showExtra(),
     };
     registerFileCommands(this.commands, this.files);
-    try {
-      if (existsSync(this.activityFile)) this.activity.restore(JSON.parse(readFileSync(this.activityFile, "utf8")), Date.now());
-    } catch {
-      /* an unreadable log only loses the past lines */
-    }
-    this.commands.onCommand((e) => this.activity.record(e, this.commands.get(e.name)?.title ?? e.name, e.name.startsWith("intention.") ? this.intentionLineLabel(e.args) : undefined));
-    this.commands.register({
-      name: "activity.list",
-      title: "Activité récente",
-      titleEn: "Recent activity",
-      description: "What changed (the last week, kept across restarts), newest first: command, who (user name, master token, AI client), from where (ui, midi, osc, mcp, timeline), the object acted on (targetLabel: an intention's label, its id being generated), and whether it worked. A burst of the same command (a fader dragged) is one line with a count. undo, on a change to a look, group, channel fader, dashboard or canvas: what history.undo takes (with the line's at and until) to put it back as it was. collection, on a history.restore or history.undo line: the collection it acted on (such a line on a canvas has an undo too).",
-      right: "show:write",
-      readOnly: true,
-      profiles: ["setup", "design", "live"],
-      schema: z.object({ limit: z.number().int().min(1).max(500).default(100) }),
-      run: ({ limit }) => {
-        const designWrite = (name: string) => {
-          const def = this.commands.get(name);
-          return def?.right === "show:write" && !def.readOnly;
-        };
-        return this.activity.list(limit).map((e) => {
-          const undo = undoOf(e, designWrite);
-          const def = this.commands.get(e.name);
-          const line = { ...e, ...(def ? { title: commandTitle(def) } : {}) };
-          return undo ? { ...line, undo } : line;
-        });
-      },
-    });
-    // any change of the show or its venue (a show switch reloads them: a change too) makes the day's automatic backup due
-    this.show.onChange(() => (this.changedSinceAutoBackup = true));
-    // the personal intentions a show uses go into its backups (T15): a change there is a change of the backup
-    personal.onChange(() => (this.changedSinceAutoBackup = true));
-    this.venue.store.onChange(() => (this.changedSinceAutoBackup = true));
-    this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
-    this.os2l = new Os2lServer(this.config.os2l, (event) => this.onOs2l(event));
-    this.ableset = new AbleSetClient(this.config.ableset, (song, section) => this.followAbleSet(song, section));
-    this.commands.register({
-      name: "link.status",
-      title: "Ableton Link",
-      titleEn: "Ableton Link",
-      hints: "O",
-      description: "The Ableton Link session heard on the network (listening only, while the tempo source is « link »): peers, sessions, the tempo of the session with the most peers, and whether its beats are placed (`phase`: its time measured from a peer, the light's beats fall on the session's).",
-      right: "dashboards:view",
-      readOnly: true,
-      profiles: ["setup", "live"],
-      schema: z.object({}),
-      run: () => this.link.status(),
-    });
-    this.commands.register({
-      name: "ableset.status",
-      title: "AbleSet",
-      titleEn: "AbleSet",
-      hints: "O",
-      description: "AbleSet (setlist for Ableton Live) followed over OSC: on or off, where it is, connected (its heartbeat), the song and section it plays, and whether the show had the last one asked.",
-      right: "dashboards:view",
-      readOnly: true,
-      profiles: ["setup", "live"],
-      schema: z.object({}),
-      run: () => this.ableset.status(),
-    });
-    this.commands.register({
-      name: "ableset.jump",
-      title: "Aller dans AbleSet",
-      titleEn: "Jump in AbleSet",
-      hints: "O",
-      changes: ["playback", "rules"],
-      description: "Moves AbleSet to a song of the show (id or title) and, optionally, one of its sections (id or name): AbleSet receives the song's title and the section's name. While the follower is on, the light then follows AbleSet there as it plays.",
-      right: "commands:trigger",
-      profiles: ["live"],
-      schema: z.object({ song: z.string(), section: z.string().optional() }),
-      run: ({ song: wanted, section: part }) => {
-        if (!this.config.ableset.enabled) throw new CommandError("failed", say("le suivi d'AbleSet est éteint (page MIDI)", "the AbleSet follower is off (MIDI page)"));
-        const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-        const song = this.songs?.songs.list().find((s) => s.id === wanted || same(s.title, wanted));
-        if (!song) throw new CommandError("invalid", say(`chant inconnu : ${wanted}`, `unknown song: ${wanted}`));
-        const section = part === undefined ? undefined : song.sections.find((x) => x.id === part || same(x.name, part));
-        if (part !== undefined && !section) throw new CommandError("invalid", say(`section inconnue : ${part}`, `unknown section: ${part}`));
-        this.ableset.jump(song.title, section?.name);
-        return { song: song.title, ...(section ? { section: section.name } : {}), connected: this.ableset.connected };
-      },
-    });
-    this.commands.register({
-      name: "ableset.configure",
-      title: "Suivre AbleSet",
-      titleEn: "Follow AbleSet",
-      hints: "IO",
-      changes: ["machine"],
-      description: "Turns the AbleSet follower on or off and says where AbleSet runs (host, default this machine; port 39051). While AbleSet plays, the section of the same name in the song of the same title starts (as a song's timeline would: never a manual-only look). Kept in the machine config.",
-      right: "midi:configure",
-      profiles: ["setup"],
-      schema: z.object({ enabled: z.boolean().optional(), host: z.string().min(1).optional(), port: z.number().int().min(1).max(65535).optional() }),
-      run: async (patch) => {
-        this.config = { ...this.config, ableset: { ...this.config.ableset, ...patch } };
-        await this.ableset.setConfig(this.config.ableset);
-        await this.opts.config?.set(this.config);
-        return this.ableset.status();
-      },
-    });
-    this.commands.onCommand((e) => {
-      if (!e.ok) return;
-      if (e.name === "tempo.set" || e.name === "tempo.tap") {
-        this.djOverMidi = false; // the desk chose
-        // Link listened to only while it leads; its tempo taken at once when chosen
-        if (this.tempo.state().source === "link") {
-          void this.link.start().then(() => {
-            const bpm = this.link.status().bpm;
-            if (bpm !== undefined && this.tempo.state().source === "link") this.tempo.follow(bpm, undefined, "link");
-          });
-        } else void this.link.stop();
-      }
-      this.syncOs2lFeedback();
-    });
-    this.commands.register({
-      name: "os2l.status",
-      title: "DJ (OS2L)",
-      titleEn: "DJ (OS2L)",
-      description: "DJ software connected over OS2L (VirtualDJ…): port, DJ computers with their tempo and beats received, the last buttons pressed. Their beats lead the tempo unless the MIDI clock plays; a button plays the look (or recalls the snapshot) of its name.",
-      right: "dashboards:view",
-      readOnly: true,
-      profiles: ["setup", "live"],
-      schema: z.object({}),
-      run: () => this.os2l.status(),
-    });
 
-    const publishFrame = throttleMerge<number>(
-      40, // ≤ 25 Hz to dashboards (docs/architecture.md, topic light:dmx)
-      (xs) => xs[xs.length - 1]!,
-      (now) => this.publish("frame", { now, buffers: this.engine.output.buffers }),
-    );
-    // smoothed faders on their way (docs/specs/groups-masters.md, « Lissage »): ghost bars on the Live;
-    // one empty message once all have arrived, so they go away
-    const publishGlide = throttleMerge<ReturnType<ShowRuntime["gliding"]>>(40, (xs) => xs[xs.length - 1]!, (g) => this.publish("glide", g));
-    let wasGliding = false;
-    let lastClampKey = "";
-    // why each moving head is where it is (T25): on a change of layer, owner, lock, rest, glide start or end, never
-    // every frame; a burst (a look launched on every head, then its glide ending) leaves at most one message per
-    // 100 ms, built when it leaves (the state then, not the state that triggered it)
-    const publishMotion = throttleMerge<null>(100, () => null, () => this.publish("motion", { heads: motionEntries(this.runtime) }));
-    let lastMotionKey = "";
-    this.engine.onFrame((buffers, now) => {
-      if (this.songs) followPosition(this.songs);
-      this.router.sendFrame(buffers);
-      publishFrame(now);
-      const glide = this.runtime?.gliding();
-      const gliding = !!glide && (glide.gm !== undefined || Object.keys(glide.groups).length > 0 || Object.keys(glide.faders).length > 0);
-      if (glide && (gliding || wasGliding)) publishGlide(glide);
-      wasGliding = gliding;
-      if (this.runtime) {
-        const motion = motionKey(this.runtime);
-        if (motion !== lastMotionKey) {
-          lastMotionKey = motion;
-          publishMotion(null);
-        }
-      }
-      const clamps = this.runtime?.lastClamps ?? [];
-      const key = clamps.map((c) => `${c.fixture}/${c.channel}/${c.to}`).join("|");
-      if (key !== lastClampKey) {
-        lastClampKey = key;
-        this.publish("rules", { clamps });
-      }
-    });
-    this.router.onNodesChanged(() => this.publish("nodes", this.router.nodes()));
+    // the activity log, read back from the last run, then recording every command
+    restoreActivity(this.activity, activityFile(dataRoot));
+    wireActivity(this.commands, this.activity, (args) => intentionLineLabel(this.intentions, args));
+    // the personal intentions a show uses go into its backups (T15): a change there is a change of the backup
+    this.backups = new AutoBackup(this.files);
+    this.backups.watch([this.show, personal, this.venue.store]);
+
+    // OSC, then the DJ (OS2L), AbleSet and Link
+    this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
+    this.sync = new ExternalSync({ commands: this.commands, runtime: this.runtime, songs, tempo: this.tempo, link: this.link, hub: this.hub, config });
+    this.os2l = this.sync.os2l;
+    this.ableset = this.sync.ableset;
+
+    // every frame to the nodes and the dashboards
+    wireLivePublications({ engine: this.engine, router: this.router, runtime: this.runtime, songs, publish });
   }
 
   private definitionDirs(venue: string): string[] {
     return definitionDirsFor(this.dataRoot, venue);
-  }
-
-  /**
-   * An intention command's line said by the intention's label (T15b: a new one's id is generated), read
-   * when it is recorded: the label given, else the one it bears, else the one its last copy bore (deleted).
-   */
-  private intentionLineLabel(args: unknown): string | undefined {
-    const a = (args && typeof args === "object" ? args : {}) as { id?: unknown; intention?: { id?: unknown; label?: unknown } };
-    if (typeof a.intention?.label === "string" && a.intention.label.trim()) return a.intention.label.trim();
-    const id = typeof a.id === "string" ? a.id : typeof a.intention?.id === "string" ? a.intention.id : undefined;
-    if (!id) return undefined;
-    const label = labelOfRef(showStack(this.intentions), id);
-    if (label !== id) return label;
-    return [...this.intentions.show.deleted(), ...this.intentions.personal.deleted()].find((d) => d.id === id)?.name;
   }
 
   /** Set by start(): the show's loads migrate its intention references from then on (never offline, T15b). */
@@ -587,19 +298,7 @@ export class LightPlugin implements McpPlugin {
 
   private migrateLoaded(): void {
     if (!this.serving) return;
-    const songs = this.songs?.songs;
-    // nothing names an intention: the files of this machine are not read for nothing
-    if (!songs?.list().some((s) => s.mood.length) && !this.runtime.looks.list().some((l) => l.tags.some((t) => t.startsWith(AMBIANCE)))) return;
-    if (this.intentions.privateUnreadable?.()) return;
-    const stack = showStack(this.intentions);
-    for (const s of songs?.list() ?? []) {
-      const m = migrateMood(stack, s.mood);
-      if (m.changed) songs!.put({ ...s, mood: m.mood });
-    }
-    for (const l of this.runtime.looks.list()) {
-      const t = migrateTags(stack, l.tags);
-      if (t.changed) this.runtime.looks.put({ ...l, tags: t.tags });
-    }
+    migrateIntentionWords(this.intentions, this.songs?.songs, this.runtime.looks);
   }
 
   /** Re-reads the show and venue folders (archive restored, show reset or opened) and tells every screen. */
@@ -642,18 +341,7 @@ export class LightPlugin implements McpPlugin {
    * its own: its archives carry them, so that a restore anywhere brings them back as the show's (T15).
    */
   showExtra(): Record<string, string> {
-    const i = this.intentions;
-    const stack = showStack(i);
-    const used = intentionUsesByKey({ songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() }, refKey(stack)).keys();
-    const intentions = embeddedIntentions(stack, used).intentions.map((x) => [`intentions/${x.id}.json`, stableStringify(x)] as const);
-    // the personal colour presets it cites (favourites, mappings, cues) and has none of its own of that id (T41)
-    const c = this.colours;
-    const cited = citedColours({ ...c.citing(), favorites: favoritesInOrder(stackColours(c.personal.list(), c.show.list()).values()).map((e) => e.id) });
-    const colours = cited.flatMap((id) => {
-      const p = !c.show.has(id) && c.personal.get(id);
-      return p ? [[`colours/${id}.json`, stableStringify(p)] as const] : [];
-    });
-    return Object.fromEntries([...intentions, ...colours]);
+    return showExtraFiles(this.intentions, this.colours, { songs: this.songs?.songs.list() ?? [], looks: this.runtime.looks.list() });
   }
 
   restoreTargets(): RestoreTargets {
@@ -663,22 +351,7 @@ export class LightPlugin implements McpPlugin {
       venueId: this.config.venue,
       definitionDirs: this.definitionDirs(this.config.venue),
       fixturesDir: path.join(this.dataRoot, "fixtures"),
-      // an intention of this machine as an archive would carry it: one restored as it is stays in the library
-      machineIntention: (key) => {
-        const i = this.intentions;
-        const [own] = embeddedIntentions(stackIntentions(i.base(), i.personal.list(), []), [key]).intentions;
-        return own && stableStringify(own);
-      },
-      // a colour preset of the personal library as an archive would carry it (T41): one restored as it is stays there
-      machineColour: (id) => {
-        const p = this.colours.personal.get(id);
-        return p && stableStringify(p);
-      },
-      // what an intention the archive brings is compared with: one of the same label here is a twin (T15b)
-      machineIntentions: () => {
-        const i = this.intentions;
-        return [...stackIntentions(i.base(), i.personal.list(), []).values()].flatMap((e) => (e.hidden || e.origin === "show" ? [] : [{ id: e.id, label: e.label || e.id, origin: e.origin, colors: e.colors }]));
-      },
+      ...machineRestoreHooks(this.intentions, this.colours),
     };
   }
 
@@ -703,126 +376,9 @@ export class LightPlugin implements McpPlugin {
     }
   }
 
-  private activeMidiProfile(): { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: MidiProfile["rtp"] } {
-    const p = this.config.midi.profiles[this.config.midi.active] ?? MidiProfileSchema.parse({});
-    return { inputs: p.inputs, feedbackOutput: p.feedbackOutput, clockOutput: p.clockOutput, rtp: p.rtp };
-  }
-
-  /**
-   * MIDI feedback follows the real state, whatever changed it (UI, OSC, MCP, timeline, MIDI):
-   * look mappings light up when their look plays, level mappings mirror their group's master.
-   */
-  /**
-   * OS2L (docs/specs/midi.md, « OS2L ») : the DJ's beats lead the tempo, catching up their phase,
-   * unless the MIDI clock plays (Ableton leads, and takes it back when it returns) or the desk's
-   * microphone listens; a pad button plays the look of its name (by name or id, any case) while
-   * « on », or recalls the snapshot of its name.
-   */
-  private onOs2l(event: Os2lEvent): void {
-    if (event.evt === "beat") {
-      const s = this.tempo.state();
-      if (s.source === "audio") return; // the microphone the desk switched on leads
-      if (s.source === "midi") {
-        if (this.tempo.midiReceiving()) return; // Ableton plays: it leads
-        this.djOverMidi = true;
-      }
-      if (event.bpm >= 20 && event.bpm <= 400) this.tempo.follow(event.bpm, 0, "os2l");
-      return;
-    }
-    if (event.evt === "cmd") {
-      // a numbered command (a VirtualDJ slider): a CC on the « OS2L » port, for the MIDI mappings
-      if (Number.isInteger(event.id) && event.id >= 0 && event.id <= 127) this.hub.dispatch("os2l", OS2L_PORT, [0xb0, event.id, Math.round(event.param * 127)]);
-      return;
-    }
-    if (event.evt !== "btn") return;
-    const wanted = event.name.toLowerCase();
-    const named = <T extends { id: string; name: string }>(list: T[]) => list.find((x) => x.id.toLowerCase() === wanted || x.name.trim().toLowerCase() === wanted);
-    const ctx = { origin: "os2l" as const, can: () => true };
-    const look = named(this.runtime.looks.list());
-    if (look) {
-      this.os2lButtons.set(wanted, { name: event.name, page: event.page, look: look.id, on: event.state === "on" });
-      void this.commands.invoke(event.state === "on" ? "look.go" : "look.stop", { id: look.id }, ctx).catch(() => undefined);
-      return;
-    }
-    const snapshot = event.state === "on" ? named(this.runtime.snapshots.list()) : undefined;
-    if (snapshot) void this.commands.invoke("snapshot.recall", { id: snapshot.id }, ctx).catch(() => undefined);
-  }
-
-  /** AbleSet reached a section: the song of that title (or id), its section of that name (or id), any case. */
-  private followAbleSet(songName: string, sectionName: string): boolean {
-    const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-    const song = this.songs?.songs.list().find((s) => same(s.title, songName) || same(s.id, songName));
-    const section = song?.sections.find((x) => same(x.name, sectionName) || same(x.id, sectionName));
-    if (!song || !section) return false;
-    void this.commands.invoke("song.section.go", { song: song.id, section: section.id }, { origin: "ableset", can: () => true }).catch(() => undefined);
-    return true;
-  }
-
-  /** The DJ's pad shows what plays: a look started or stopped elsewhere lights or darkens its button. */
-  private syncOs2lFeedback(): void {
-    for (const b of this.os2lButtons.values()) {
-      const on = this.runtime.isActive(b.look);
-      if (on === b.on) continue;
-      b.on = on;
-      this.os2l.feedback(b.name, on, b.page);
-    }
-  }
-
   /** Sends MIDI feedback for state changes (all of it with `full`); silent on standby, where QLC+ holds the controllers. */
   syncMidiFeedback(full = false): void {
-    if (this.router.isStandby()) return;
-    const out: number[][] = [];
-    for (const m of this.mapper.list()) {
-      const target = argText(m.on.args.id);
-      if (m.on.command === "look.go") out.push(...this.mapper.syncState(m.id, this.runtime.isActive(target)));
-      else if (m.on.command === "motion.freeze") out.push(...this.mapper.syncState(m.id, this.frozenFor(m.on.args)));
-      else if (m.on.command === "group.level") {
-        const g = this.runtime.groups.get(target);
-        if (g?.master) out.push(...this.mapper.syncState(m.id, !g.master.mute && g.master.level > 0, g.master.level));
-      }
-    }
-    this.hub.sendFeedback(full ? this.mapper.allFeedback() : out);
-  }
-
-  /**
-   * Every MIDI message: tempo follows the clock; mappings turn the rest into commands. What each
-   * message did (the mappings it matched, each command and whether it worked, how long it took)
-   * goes to the monitor and the journal: a note that « did not work » shows why.
-   */
-  private onMidi(m: HubMessage): void {
-    const started = performance.now();
-    this.tempo.handleMidi(m.msg);
-    const t = m.msg.type;
-    if (t === "clock" || t === "start" || t === "stop" || t === "continue" || t === "songposition") return;
-    // A Program Change selects the rule program carrying that number on that channel (no mapping needed).
-    if (m.msg.type === "programchange") {
-      const program = this.runtime.programFor(m.msg.channel, m.msg.program);
-      if (program && this.runtime.selectProgram(program.id)) {
-        this.engine.requestFrame();
-        this.publish("state", this.state());
-      }
-    }
-    const out = this.mapper.handle(m.msg, m.port);
-    if (!this.router.isStandby() && m.source !== "os2l") this.hub.sendFeedback(out.feedback); // a controller's LEDs, not the DJ's
-    const calls = out.calls.map((call) => {
-      const target = argText(call.args.id ?? call.args.section);
-      return this.commands.invoke(call.command, call.args, { origin: m.source === "os2l" ? "os2l" : "midi", can: () => true }).then(
-        () => ({ command: call.command, target, ok: true }),
-        (err: Error) => {
-          this.publish("midi", { error: `${call.command} : ${err.message}` });
-          return { command: call.command, target, ok: false, error: err.message };
-        },
-      );
-    });
-    // in the journal at once, in the order of arrival; its commands' outcome filled in when done
-    const entry: MidiJournalEntry = { at: Date.now(), port: m.port, source: m.source, msg: m.msg, matched: out.matched, calls: [], ms: 0 };
-    this.midiJournal.push(entry);
-    if (this.midiJournal.length > MIDI_JOURNAL_SIZE) this.midiJournal.shift();
-    void Promise.all(calls).then((done) => {
-      entry.calls = done;
-      entry.ms = Math.round((performance.now() - started) * 100) / 100;
-      this.publish("midi", { monitor: entry });
-    });
+    this.midi.syncFeedback(full);
   }
 
   /** Resolves true after the next frame the engine renders, false when none comes within 100 ms (the engine does not run). */
@@ -843,7 +399,7 @@ export class LightPlugin implements McpPlugin {
     this.opts.eventBus.publish({ pluginId: this.id, type, payload, timestamp: Date.now() });
   }
 
-  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number; grandMasterSmoothed: boolean; motionLock: MotionLockState & { effective: LockLevel }; movingHeads: { total: number; frozen: number; hard: number } } {
+  state(): { show: { id: string; name: string }; blackout: boolean; universes: number; discovery: string; standby: boolean; foreignSources: string[]; foreignLocal: string[]; program: string | null; parked: number; panicUndo: boolean; liveAi: boolean; grandMaster: number; grandMasterSmoothed: boolean; motionLock: MotionLockSummary; movingHeads: { total: number; frozen: number; hard: number } } {
     return {
       show: { id: this.config.show, name: this.runtime?.settings.name ?? this.config.show },
       program: this.runtime?.activeProgram ?? null,
@@ -864,56 +420,11 @@ export class LightPlugin implements McpPlugin {
       grandMasterSmoothed: Boolean(this.runtime?.settings.grandMasterSmoothing),
       // « Figer les lyres » (T26): said on every page; `effective` is the strictest level a moving head is under (the
       // badge: a head frozen hard under a soft global lock is « everything frozen » for it)
-      motionLock: this.motionLockSummary(),
+      motionLock: motionLockSummary(this.runtime),
       // the installed moving heads and how many of them are frozen (effective level not off): the top bar shows its
       // « Figer les lyres » button only where the venue has heads, and says when only some are frozen
-      movingHeads: this.movingHeadsSummary(),
+      movingHeads: movingHeadsSummary(this.runtime),
     };
-  }
-
-  /**
-   * Whether a « Figer les lyres » mapping's target is frozen (T26), from the lock itself whoever froze it (the
-   * interface, a snapshot, the Panic): every head, a group or fixtures — all their installed moving heads (one head
-   * frozen hard on its own leaves the mapping off: its next press freezes the others, decision V1). Its LED says it,
-   * and its next press (latch, toggle) does the opposite of what the lock is now.
-   */
-  private frozenFor(args: Record<string, unknown>): boolean {
-    const heads = this.runtime.movingHeads();
-    const group = argText(args.group);
-    const listed = Array.isArray(args.fixtures) ? args.fixtures.map(argText) : undefined;
-    const inScope = listed ?? (group ? [...this.runtime.fixturesOf(group)] : undefined);
-    const scoped = inScope ? inScope.filter((id) => heads.includes(id)) : heads;
-    return scoped.length > 0 && scoped.every((head) => this.runtime.motionLock(head) !== "off");
-  }
-
-  /**
-   * How many moving heads are installed, how many of them a lock holds and how many it holds hard (their effective
-   * level, T26): the top bar says the global level and « · 1 en dur » for heads frozen harder on their own.
-   */
-  private movingHeadsSummary(): { total: number; frozen: number; hard: number } {
-    if (!this.runtime) return { total: 0, frozen: 0, hard: 0 };
-    const levels = this.runtime.movingHeads().map((head) => this.runtime.motionLock(head));
-    return { total: levels.length, frozen: levels.filter((l) => l !== "off").length, hard: levels.filter((l) => l === "hard").length };
-  }
-
-  /** The lock levels, and the strictest effective level over the installed moving heads (off without a head). */
-  private motionLockSummary(): MotionLockState & { effective: LockLevel } {
-    if (!this.runtime) return { level: "off", heads: {}, effective: "off" };
-    const lock = this.runtime.motionLockState();
-    const effective = this.runtime.movingHeads().reduce<LockLevel>((acc, head) => stricter(acc, this.runtime.motionLock(head)), "off");
-    return { ...lock, effective };
-  }
-
-  /** « Figer les lyres » in light://live: a forgotten lock reads as « my heads no longer move » (T26). */
-  private liveLockLine(): string {
-    const { level, heads, effective } = this.motionLockSummary();
-    if (effective === "off") return "";
-    const named = (lv: "soft" | "hard") =>
-      Object.entries(heads)
-        .filter(([, l]) => l === lv)
-        .map(([id]) => this.venue.fixtures.get(id)?.name ?? id);
-    const parts = [level !== "off" ? `toutes ${level === "hard" ? "en dur (pad compris)" : "en souple (le pad reste libre)"}` : "", named("hard").length ? `en dur : ${named("hard").join(", ")}` : "", named("soft").length ? `en souple : ${named("soft").join(", ")}` : ""].filter(Boolean);
-    return `Lyres FIGÉES (${parts.join(" ; ")}) : les looks ne les déplacent plus ; motion.unfreeze les rend.`;
   }
 
   /** Invokes a command for a caller identified by its credential (HTTP, WS, OSC…). */
@@ -976,20 +487,13 @@ export class LightPlugin implements McpPlugin {
     this.engine.start();
     await this.hub.start();
     await this.osc.start().catch((err: Error) => console.warn(`OSC indisponible sur le port ${this.config.osc.port} : ${err.message}`));
-    await this.os2l.start().catch((err: Error) => console.warn(`OS2L indisponible sur le port ${this.config.os2l.port} : ${err.message}`));
-    const os2lPort = this.os2l.port;
-    if (os2lPort && this.config.os2l.advertise) this.os2lAnnounce = await advertise({ instance: "Lumière", type: "_os2l._tcp", port: os2lPort, ...localHost() });
-    // every millisecond: a clock every ~21 ms at 120 BPM, measured within ±1 ms of its time
-    this.clockTimer = setInterval(() => this.activeMidiProfile().clockOutput && this.clockOut.tick(), 1);
-    this.clockTimer.unref();
+    await this.sync.startOs2l();
+    this.midi.startClock();
     await this.ableset.start();
     let lastState = "";
     let ticks = 0;
     this.tempoTimer = setInterval(() => {
-      if (this.djOverMidi && this.tempo.midiReceiving()) {
-        this.djOverMidi = false;
-        this.tempo.setSource("midi"); // Ableton plays again: it leads
-      }
+      this.sync.handBackToMidi();
       this.publish("tempo", this.tempo.state());
       // Output state (standby, other Art-Net sources) changes without commands: check it every second.
       if (++ticks % 4) return;
@@ -1002,60 +506,33 @@ export class LightPlugin implements McpPlugin {
     }, 250);
     this.tempoTimer.unref();
     // the day's automatic backup (data/retention.ts): a first look a few minutes in, then every hour
-    const check = () => this.autoBackup();
-    this.autoBackupTimers = [setTimeout(check, AUTO_BACKUP_FIRST_MS), setInterval(check, AUTO_BACKUP_EVERY_MS)];
-    for (const t of this.autoBackupTimers) t.unref();
+    this.backups.start(() => this.autoBackup());
     this.started = true;
   }
 
   /** Writes the day's automatic backup when due, and prunes old copies; never stops the show for it. */
   autoBackup(now = new Date()): string | undefined {
-    try {
-      const file = runAutoBackup(this.files, this.changedSinceAutoBackup, now);
-      if (file) {
-        this.changedSinceAutoBackup = false;
-        console.log(`Sauvegarde automatique : data/backups/${file}`);
-      }
-      return file;
-    } catch (err) {
-      console.warn(`Sauvegarde automatique impossible : ${(err as Error).message}`);
-      return undefined;
-    }
-  }
-
-  /** The activity log survives a restart (data/machine/activity.json, the last week). */
-  private get activityFile(): string {
-    return path.join(this.dataRoot, "machine", "activity.json");
+    return this.backups.run(now);
   }
 
   /** Writes the activity log when it changed (also called by the CLI, which runs commands in its own process). */
   saveActivity(): void {
-    const lines = this.activity.takeChanges();
-    if (!lines) return;
-    try {
-      mkdirSync(path.dirname(this.activityFile), { recursive: true });
-      writeFileSync(`${this.activityFile}.tmp`, JSON.stringify(lines));
-      renameSync(`${this.activityFile}.tmp`, this.activityFile);
-    } catch (err) {
-      console.warn(`Journal d'activité non enregistré : ${(err as Error).message}`);
-    }
+    writeActivity(this.activity, activityFile(this.dataRoot));
   }
 
   async stop(): Promise<void> {
     if (this.tempoTimer) clearInterval(this.tempoTimer);
     this.loopDelay.stop();
     this.saveActivity();
-    for (const t of this.autoBackupTimers) clearTimeout(t);
+    this.backups.stop();
     if (this.started) this.saveLive();
     this.show.flushLive();
     this.runtime.flushHeld(); // the pad's last move under a soft lock, still within its second (T26)
     this.osc.stop();
-    if (this.clockTimer) clearInterval(this.clockTimer);
+    this.midi.stopClock();
     await this.ableset.stop();
     await this.link.stop();
-    await this.os2lAnnounce?.stop();
-    this.os2lAnnounce = undefined;
-    await this.os2l.stop();
+    await this.sync.stopOs2l();
     this.hub.stop();
     this.engine.stop();
     this.router.stop();
@@ -1077,16 +554,7 @@ export class LightPlugin implements McpPlugin {
 
   /** What a model needs before its first call: safety, cheap reads, safe edits, where to look (docs/specs/mcp.md). */
   getInstructions(): string {
-    return [
-      "light-mcp-server drives DMX lighting (Art-Net/sACN). Every tool maps to one server command, the same ones the web UI, MIDI and OSC use; you only see the tools your role may call, and rules (UV max, forbidden modes…) are applied last to whatever you do.",
-      "Safety: light_panic recalls the safe snapshot (else the safe look, else a Blackout); light_blackout cuts everything. light_output_status says whether the output is in standby (then nothing reaches the rig). Looks marked manualOnly are for a human finger, not for you.",
-      "Reading: light_look_list is brief (name, playing, colour, technique kind); read one look whole with light_look_get before changing it with light_look_put (a brief look is refused). light_stage_describe and the light://show, light://venue and light://knowledge resources give the context.",
-      "Changing safely: propose before you write — light_show_diff says what a put would change, field by field, without writing; for several changes, light_show_propose holds them as one proposal that the user applies on the Show page (or you, on their yes, with light_show_apply; light_show_revert takes it back as a whole). Show what it does and write on the user's yes. light_show_references says where a look, group or channel fader is used; deletes are refused while something uses it unless force. light_history_undo takes back a change from its light_activity_list line (say first what was changed on that object since); light_history_list / light_history_restore put an earlier version back, light_history_deleted lists what can come back.",
-      "Checking: light_show_lint (references, patch overlaps, missing definitions, ambiguous names), light_venue_patch_check, light_selftest_run. light_activity_list says who did what and from where.",
-      "Building a show: patch fixtures, make a canvas, create looks (light_look_from_intent, light_show_autopresets), then light_dashboard_generate.",
-      "Venues: several shows may play on one venue (light_venue_list), and a patch change then changes all of them; light_show_venue_detach gives the open show its own copy first. Gear not installed for this show is marked with light_venue_fixture_presence (dark, silent, kept in the patch), not deleted; light_venue_positions_import copies placement from another venue (preview, then apply).",
-      "During a service (profile live), only if the desk switched « IA en live » on (show settings, liveAi): light_live_adjust makes small touch-ups — a DCA by up to 25 % at a time, a look started or stopped — within the rules, without asking each time. Never a manual-only or danger look; Panic and Blackout remain for emergencies.",
-    ].join("\n");
+    return LIGHT_INSTRUCTIONS;
   }
 
   toolRight(name: string): string | undefined {
@@ -1094,7 +562,7 @@ export class LightPlugin implements McpPlugin {
   }
 
   registerTools(server: McpServer): void {
-    this.registerResources(server);
+    registerMcpResources(server, { commands: this.commands, runtime: this.runtime, venue: this.venue, engine: this.engine, router: this.router, tempo: this.tempo, auth: this.opts.auth });
     for (const p of PROMPTS) {
       server.registerPrompt(p.name, { title: p.title, description: p.description, argsSchema: promptArgs(p) }, (args: Record<string, string | undefined>) => ({
         messages: [{ role: "user" as const, content: { type: "text" as const, text: p.text(args ?? {}) } }],
@@ -1121,91 +589,6 @@ export class LightPlugin implements McpPlugin {
         },
       );
     }
-  }
-
-  /** MCP resources: readable snapshots for the AI (docs/specs/mcp.md, « Ressources »). */
-  private registerResources(server: McpServer): void {
-    const json = (uri: URL, value: unknown) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(value, null, 2) }] });
-    const sys = { origin: "mcp" as const, can: () => true };
-    server.registerResource("show", "light://show", { title: "Show", description: "Looks, palettes, groups, songs, setlists and settings of the current show.", mimeType: "application/json" }, async (uri) =>
-      json(uri, {
-        settings: this.runtime.settings,
-        palettes: this.runtime.palettes.list(),
-        looks: this.runtime.looks.list().map(({ technique, ...l }) => ({ ...l, technique: technique.kind })),
-        groups: this.runtime.groups.list(),
-        songs: await this.commands.invoke("song.list", {}, sys),
-        setlists: await this.commands.invoke("setlist.list", {}, sys),
-      }),
-    );
-    server.registerResource("venue", "light://venue", { title: "Lieu", description: "Patch, canvases and rules of the venue.", mimeType: "application/json" }, (uri) =>
-      json(uri, { fixtures: this.venue.fixtures.list().map((f) => (this.venue.absent.has(f.id) ? { ...f, absent: true } : f)), canvases: this.venue.canvases.list().map(({ render, ...c }) => ({ ...c, renderedRanges: render.length })), rules: this.runtime.venueRules.list() }),
-    );
-    server.registerResource("live", "light://live", { title: "En direct", description: "What is playing now, in plain French: standby, forced channels, looks, masters, blackout, tempo, song and section.", mimeType: "text/plain" }, async (uri) => {
-      const t = this.tempo.state();
-      const looks = this.runtime.activeLooks().map((id) => this.runtime.looks.get(id)?.name ?? id);
-      const masters = this.runtime.groups.list().filter((g) => g.master).map((g) => `${g.name} ${Math.round((g.master!.mute ? 0 : g.master!.level) * 100)} % (effectif ${Math.round(this.runtime.effectiveLevel(g.id) * 100)} %)`);
-      const song = (await this.commands.invoke("song.state", {}, sys)) as { song?: string; section?: string };
-      const parked = this.engine.parkedCount();
-      const text = [
-        this.router.isStandby() ? "Sortie EN VEILLE : rien n'atteint les projecteurs (une autre console tient peut-être la lumière)." : "",
-        parked ? `${parked} canal(aux) FORCÉ(S) depuis la console DMX, par-dessus le show tant qu'ils ne sont pas relâchés.` : "",
-        this.engine.isBlackout() ? "BLACKOUT actif." : "",
-        this.liveLockLine(),
-        `Looks en cours : ${looks.length ? looks.join(", ") : "aucun"}.`,
-        masters.length ? `Masters : ${masters.join(" ; ")}.` : "",
-        `Tempo : ${t.bpm.toFixed(1)} BPM (${t.source}${t.clockMissing ? ", horloge absente" : ""}).`,
-        song.song ? `Chant : ${song.song}, section ${song.section ?? "—"}.` : "",
-        this.runtime.lastClamps.length ? `Règles appliquées : ${this.runtime.lastClamps.length} valeur(s) bornée(s).` : "",
-      ].filter(Boolean).join("\n");
-      return { contents: [{ uri: uri.href, mimeType: "text/plain", text }] };
-    });
-    server.registerResource("stage", "light://stage", { title: "Scène", description: "The stage in plain French: zones (protected ones flagged), fixtures in them and fixtures lighting them.", mimeType: "text/plain" }, async (uri) => ({
-      contents: [{ uri: uri.href, mimeType: "text/plain", text: String(await this.commands.invoke("stage.describe", {}, sys)) }],
-    }));
-    server.registerResource("knowledge", "light://knowledge", { title: "Base de connaissances couleur", description: "Mood → colours and design rules.", mimeType: "application/json" }, async (uri) => json(uri, await this.commands.invoke("knowledge.get", {}, sys)));
-
-    // Read with the caller's own rights: a resource gives nothing its tools would refuse (the log needs show:write).
-    const as = (extra: { authInfo?: { token: string } } | undefined) => {
-      const token = extra?.authInfo?.token;
-      return { origin: "mcp" as const, can: (right: string) => token === undefined || !this.opts.auth || this.opts.auth.can(token, right) };
-    };
-    server.registerResource("rules", "light://rules", { title: "Règles", description: "Rules of the venue and the show, the rule programs and the active one.", mimeType: "application/json" }, async (uri, extra) =>
-      json(uri, { rules: await this.commands.invoke("rule.list", {}, as(extra)), programs: await this.commands.invoke("program.list", {}, as(extra)), activeProgram: this.runtime.activeProgram ?? null }),
-    );
-    server.registerResource("midi-map", "light://midi/map", { title: "Table MIDI", description: "MIDI mappings as a Markdown table: input, mode, action, label.", mimeType: "text/markdown" }, async (uri, extra) => ({
-      contents: [{ uri: uri.href, mimeType: "text/markdown", text: String(await this.commands.invoke("export.notes", {}, as(extra))) }],
-    }));
-    server.registerResource("osc-map", "light://osc/map", { title: "Table OSC", description: "OSC addresses, their parameters and the command each one runs.", mimeType: "application/json" }, async (uri, extra) => json(uri, await this.commands.invoke("osc.table", {}, as(extra))));
-    server.registerResource("notes", "light://notes", { title: "Notes", description: "Every note of the show and the venue (looks, groups, fixtures, songs…).", mimeType: "application/json" }, async (uri, extra) => json(uri, await this.commands.invoke("notes.search", { query: "" }, as(extra))));
-    type SongRow = { id: string; title: string; sections: { look?: string }[] };
-    const lookName = (id?: string) => (id ? (this.runtime.looks.get(id)?.name ?? id) : undefined);
-    // one song, its sections with their looks by name; listed so a client can browse the songs
-    server.registerResource(
-      "song",
-      new ResourceTemplate("light://song/{id}", {
-        list: async (extra) => ({ resources: ((await this.commands.invoke("song.list", {}, as(extra))) as SongRow[]).map((s) => ({ uri: `light://song/${s.id}`, name: s.title })) }),
-      }),
-      { title: "Chant", description: "One song: sections with their looks (by name), cues, tempo and mood.", mimeType: "application/json" },
-      async (uri, vars, extra) => {
-        const song = ((await this.commands.invoke("song.list", {}, as(extra))) as SongRow[]).find((x) => x.id === String(vars.id));
-        if (!song) throw new Error(say(`chant inconnu : ${String(vars.id)}`, `unknown song: ${String(vars.id)}`));
-        return json(uri, { ...song, sections: song.sections.map((x) => ({ ...x, lookName: lookName(x.look) })) });
-      },
-    );
-    server.registerResource("setlist", "light://setlist", { title: "Setlist", description: "The setlist in use with its songs in order, where the service is (song, section), and the other setlists.", mimeType: "application/json" }, async (uri, extra) => {
-      const state = (await this.commands.invoke("song.state", {}, as(extra))) as { setlist?: string; song?: string; section?: string };
-      const setlists = (await this.commands.invoke("setlist.list", {}, as(extra))) as { id: string; name: string; songs: string[] }[];
-      const songs = (await this.commands.invoke("song.list", {}, as(extra))) as SongRow[];
-      const current = setlists.find((x) => x.id === state.setlist);
-      return json(uri, {
-        current: current ? { ...current, songs: current.songs.map((id) => ({ id, title: songs.find((x) => x.id === id)?.title ?? id })) } : null,
-        position: { song: state.song ?? null, section: state.section ?? null },
-        setlists: setlists.map(({ id, name }) => ({ id, name })),
-      });
-    });
-    server.registerResource("log", "light://log", { title: "Journal d'activité", description: "Who did what, from where, on which object, over the last week (needs the show:write right).", mimeType: "application/json" }, async (uri, extra) =>
-      json(uri, await this.commands.invoke("activity.list", { limit: 500 }, as(extra))),
-    );
   }
 
   async getToolCatalogue(): Promise<PluginToolCatalogue> {
