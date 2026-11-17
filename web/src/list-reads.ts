@@ -6,8 +6,8 @@ export type ReadList = (typeof READ_LISTS)[number];
 
 /** How a failed read is told and tried again; the clock is injectable. */
 export interface ReadRetry {
-  /** The read failed twice: said (the page's error bar). */
-  onError: (e: Error) => void;
+  /** Where the failures go (`failuresTogether`): a read drops its list's failure still waiting, and fails twice there. */
+  failures: Pick<FailuresTogether, "fail" | "drop">;
   /** The wait before the second try (ms). */
   delayMs?: number;
   later?: (fn: () => void, ms: number) => void;
@@ -23,11 +23,13 @@ export function dropReads(counters: Record<ReadList, number>): void {
  * Applies a read's answer only if no newer read of the same list started meanwhile: a late answer must not rewrite
  * the page with an older state (a fader thumb left at 20 % while the fader sits at 80 %). A failed read is tried once
  * more after a short wait, then said; a read overtaken by a newer one is dropped, failed or not (the newer one applies,
- * retries or says its own failure, so the list never stays unread because of it).
+ * retries or says its own failure, so the list never stays unread because of it). A read starting drops the failure
+ * of its list still waiting to be said: this read decides.
  */
 export function latestRead<T>(counters: Record<ReadList, number>, list: ReadList, read: () => Promise<T>, apply: (v: T) => void, retry: ReadRetry): void {
   const stamp = ++counters[list];
-  const { onError, delayMs = RETRY_MS, later = (fn, ms) => void setTimeout(fn, ms) } = retry;
+  const { failures, delayMs = RETRY_MS, later = (fn, ms) => void setTimeout(fn, ms) } = retry;
+  failures.drop(list);
   const current = () => stamp === counters[list];
   const attempt = (left: number) =>
     void read().then(
@@ -35,7 +37,7 @@ export function latestRead<T>(counters: Record<ReadList, number>, list: ReadList
       (e: unknown) => {
         if (!current()) return;
         if (left > 0) later(() => current() && attempt(left - 1), delayMs);
-        else onError(e instanceof Error ? e : new Error(String(e)));
+        else failures.fail(list, e instanceof Error ? e.message : String(e));
       },
     );
   attempt(1);
@@ -83,3 +85,49 @@ export function alertLines(s: ReadStates): { lists: ReadList[]; message: string 
 }
 /** A message ending its sentence once: the server's own may already end with a point. */
 export const sentence = (message: string): string => `${message.replace(/[\s.]+$/, "")}.`;
+
+/** Waits `ms`, then runs `fn`; gives back what cancels it. Injectable: the tests run the clock by hand. */
+export type Later = (fn: () => void, ms: number) => () => void;
+const laterByTimer: Later = (fn, ms) => {
+  const id = setTimeout(fn, ms);
+  return () => clearTimeout(id);
+};
+
+/** The failures of one refresh, said together. */
+export interface FailuresTogether {
+  /** `list` failed (twice): said with the others that fail within the wait. */
+  fail(list: ReadList, message: string): void;
+  /** `list` is read again: its failure still waiting is not said (the new read decides). */
+  drop(list: ReadList): void;
+  /** The page leaves: nothing waiting is said. */
+  cancel(): void;
+}
+/**
+ * The reads of one refresh fail one by one: their failures wait `delayMs` for each other (the wait starts again at
+ * each), then `say` gets them all at once, so the alert changes, and is announced, once.
+ */
+export function failuresTogether(say: (failures: [ReadList, string][]) => void, { delayMs, later = laterByTimer }: { delayMs: number; later?: Later }): FailuresTogether {
+  let waiting: [ReadList, string][] = [];
+  let stop: (() => void) | undefined;
+  const flush = () => {
+    stop = undefined;
+    const failures = waiting;
+    waiting = [];
+    if (failures.length) say(failures);
+  };
+  return {
+    fail(list, message) {
+      waiting.push([list, message]);
+      stop?.();
+      stop = later(flush, delayMs);
+    },
+    drop(list) {
+      waiting = waiting.filter(([l]) => l !== list);
+    },
+    cancel() {
+      stop?.();
+      stop = undefined;
+      waiting = [];
+    },
+  };
+}

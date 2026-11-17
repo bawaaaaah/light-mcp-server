@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { alertLines, cleared, dismissed, dropReads, failed, latestRead, sentence, started, type ReadList, type ReadRetry, type ReadStates } from "../web/src/list-reads.js";
+import { alertLines, cleared, dismissed, dropReads, failed, failuresTogether, latestRead, sentence, started, type ReadList, type ReadRetry, type ReadStates } from "../web/src/list-reads.js";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const counters = (): Record<ReadList, number> => ({ looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 });
@@ -7,7 +7,7 @@ const counters = (): Record<ReadList, number> => ({ looks: 0, groups: 0, faders:
 function retrying() {
   const waiting: { fn: () => void; ms: number }[] = [];
   const errors: string[] = [];
-  const retry: ReadRetry = { onError: (e) => errors.push(e.message), delayMs: 500, later: (fn, ms) => waiting.push({ fn, ms }) };
+  const retry: ReadRetry = { failures: { fail: (_list, message) => errors.push(message), drop: () => undefined }, delayMs: 500, later: (fn, ms) => waiting.push({ fn, ms }) };
   return { retry, waiting, errors, tick: () => waiting.splice(0).forEach((w) => w.fn()) };
 }
 
@@ -138,6 +138,85 @@ describe("list reads", () => {
 
     it("ends a message with one point", () => {
       expect([sentence("down"), sentence("down."), sentence("down. ")]).to.deep.equal(["down.", "down.", "down."]);
+    });
+  });
+
+  describe("the failures of one refresh, said together", () => {
+    /** A clock run by hand, whose waits can be cancelled. */
+    function clock() {
+      let now = 0;
+      const timers: { at: number; fn: () => void; live: boolean }[] = [];
+      const later = (fn: () => void, ms: number) => {
+        const t = { at: now + ms, fn, live: true };
+        timers.push(t);
+        return () => (t.live = false);
+      };
+      const advance = (ms: number) => {
+        now += ms;
+        for (const t of timers) if (t.live && t.at <= now) (t.live = false), t.fn();
+      };
+      return { later, advance };
+    }
+    /** The page: its read states, changed by the batch as the page does. */
+    function page() {
+      const c = clock();
+      let s: ReadStates = {};
+      let updates = 0;
+      const together = failuresTogether((batch) => ((updates += 1), (s = batch.reduce((next, [l, m]) => failed(next, l, m), s))), { delayMs: 150, later: c.later });
+      return { ...c, together, state: () => s, set: (f: (s: ReadStates) => ReadStates) => (s = f(s)), updates: () => updates };
+    }
+
+    it("says two failures 50 ms apart in one update", () => {
+      const p = page();
+      p.set((s) => started(started(s, "groups"), "faders"));
+      p.together.fail("groups", "down");
+      p.advance(50);
+      p.together.fail("faders", "down");
+      p.advance(149);
+      expect(p.updates()).to.equal(0); // the wait started again with the second
+      p.advance(1);
+      expect(p.updates()).to.equal(1);
+      expect(alertLines(p.state())).to.deep.equal([{ lists: ["groups", "faders"], message: "down" }]);
+    });
+
+    it("says nothing of a failure whose list is read again, and read, before the wait ends", () => {
+      const p = page();
+      p.together.fail("groups", "down");
+      p.advance(50);
+      p.together.drop("groups"); // read again
+      p.set((s) => cleared(started(s, "groups"), "groups")); // and read
+      p.advance(500);
+      expect([p.updates(), alertLines(p.state())]).to.deep.equal([0, []]);
+    });
+
+    it("keeps a list reading when its old failure's wait ends during a new read", () => {
+      const p = page();
+      p.together.fail("groups", "down");
+      p.together.drop("groups");
+      p.set((s) => started(s, "groups"));
+      p.advance(500);
+      expect(p.state().groups).to.deep.equal({ reading: true });
+    });
+
+    it("drops a list's failure still waiting when a read of that list starts", async () => {
+      const p = page();
+      const c = counters();
+      const retry: ReadRetry = { failures: p.together, delayMs: 0, later: (fn) => fn() };
+      latestRead(c, "groups", () => Promise.reject(new Error("down")), () => undefined, retry);
+      await flush();
+      await flush();
+      p.advance(50); // failed twice, waiting to be said
+      latestRead(c, "groups", () => new Promise<never>(() => undefined), () => undefined, retry); // read again, still under way
+      p.advance(500);
+      expect(p.updates()).to.equal(0);
+    });
+
+    it("says nothing once cancelled (the page left)", () => {
+      const p = page();
+      p.together.fail("looks", "down");
+      p.together.cancel();
+      p.advance(500);
+      expect(p.updates()).to.equal(0);
     });
   });
 });

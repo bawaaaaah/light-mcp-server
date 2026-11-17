@@ -27,7 +27,7 @@ import { quoted } from "../typography";
 import { useArm } from "../hooks/useArm";
 import { useKiosk } from "../hooks/useKiosk";
 import { added, clone, colorOf, CORNERS, dragged, dropCell, holdable, settle, SUB, type Dashboard, type Drag, type Handle, type Widget, type WidgetKind } from "../dashboard-layout";
-import { alertLines, cleared, dismissed, dropReads, failed, latestRead, sentence, started, type ReadList, type ReadRetry, type ReadStates } from "../list-reads";
+import { alertLines, cleared, dismissed, dropReads, failed, failuresTogether, latestRead, sentence, started, type ReadList, type ReadRetry, type ReadStates } from "../list-reads";
 import type { ChannelFader, Glide, Group, LightState, Look, Tempo, SongState, WidgetEnv } from "../widgets/env";
 import { WidgetView } from "../widgets/registry";
 import { ManyEditor, WidgetEditor } from "../widgets/WidgetEditor";
@@ -234,19 +234,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
    * A read that fails twice is said, per list (and the list stays as it was). The failures of one refresh come one by
    * one: they are said together, once the others have had a moment to fail too, so the alert is announced once.
    */
-  const pendingFailures = useRef<[ReadList, string][]>([]);
-  const failuresTimer = useRef(0);
-  useEffect(() => () => window.clearTimeout(failuresTimer.current), []);
-  const [retry] = useState(() => (list: ReadList): ReadRetry => ({
-    onError: (e: Error) => {
-      pendingFailures.current.push([list, e.message]);
-      window.clearTimeout(failuresTimer.current);
-      failuresTimer.current = window.setTimeout(() => {
-        const batch = pendingFailures.current.splice(0);
-        setReadStates((s) => batch.reduce((next, [l, message]) => failed(next, l, message), s));
-      }, FAILURES_TOGETHER_MS);
-    },
-  }));
+  const [together] = useState(() => failuresTogether((batch) => setReadStates((s) => batch.reduce((next, [l, message]) => failed(next, l, message), s)), { delayMs: FAILURES_TOGETHER_MS }));
+  useEffect(() => () => together.cancel(), [together]);
+  const [retry] = useState<ReadRetry>(() => ({ failures: together }));
   // the page leaving (a logout, another page): no read applied, retried or said after it, nor started by a late refresh
   const gone = useRef(false);
   useEffect(() => {
@@ -262,7 +252,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     function readOne<T>(list: ReadList, read: () => Promise<T>, apply: (v: T) => void): void {
       if (gone.current) return;
       setReadStates((s) => started(s, list));
-      latestRead(reads.current, list, read, apply, retry(list));
+      latestRead(reads.current, list, read, apply, retry);
     });
   const readGroups = useCallback(() => readList("groups", () => cmd<Group[]>("group.list"), applyRead.groups), [applyRead, readList]);
   const refresh = useCallback(() => {

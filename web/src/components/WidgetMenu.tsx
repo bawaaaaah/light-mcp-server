@@ -113,8 +113,12 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, on
   const t = useT();
   const whyId = useId();
   const selectRef = useRef<HTMLSelectElement>(null);
-  /** « Relire » pressed: once the list is read, the focus goes to the picker (the button goes); failed, it stays on it. */
-  const retried = useRef(false);
+  /**
+   * « Relire » has the focus: once the list is read the button goes with its reason, and the focus it had goes to the
+   * picker rather than to the page. Only then: a read that comes while the focus is elsewhere moves nothing.
+   */
+  const againRef = useRef<HTMLButtonElement>(null);
+  const againFocused = useRef(false);
   const read = targetsOf(kind, lists);
   const list = targetListOf(kind);
   // its list not read: busy while a read is under way (a list of the page without a state is still on its first);
@@ -123,9 +127,11 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, on
   const why = state?.why;
   const busy = !read && (state ? state.reading : true);
   useEffect(() => {
-    if (!read || !retried.current) return;
-    retried.current = false;
-    selectRef.current?.focus();
+    if (!read || !againFocused.current) return;
+    againFocused.current = false;
+    // the button is gone: the focus it had fell to the page, unless it moved meanwhile
+    const at = document.activeElement;
+    if (at === null || at === document.body || at === againRef.current) selectRef.current?.focus();
   }, [read]);
   const options = read ?? [];
   const missing = Boolean(list && value && !options.some((x) => x.id === value));
@@ -149,11 +155,13 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, on
       <span id={whyId}>{why}</span>
       {onRetry && (
         <button
+          ref={againRef}
           type="button"
           aria-disabled={busy}
+          onFocus={() => (againFocused.current = true)}
+          onBlur={() => (againFocused.current = false)}
           onClick={() => {
             if (busy) return;
-            retried.current = true;
             onRetry();
           }}
         >
