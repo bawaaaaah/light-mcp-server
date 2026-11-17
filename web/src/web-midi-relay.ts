@@ -14,7 +14,9 @@ export interface RelayOutcome {
   /** Refused (by its connection, already said closed; or another error): said; the relay goes on. */
   refused: (why: string) => void;
   /** Refused for a right missing (403): said, and the relay stops (more would only be refused). */
-  forbidden: (why: string) => void;
+  forbidden: () => void;
+  /** Dropped by the server past the flow's rate (429): counted and said there; the page may send it again. */
+  dropped?: () => void;
 }
 
 /** The refusal the server gives a connection already said closed: the only one a new connection cures. */
@@ -33,9 +35,9 @@ export function relayOver(channel: Pick<Channel, "online" | "request" | "reconne
   void channel.request("POST", `${COMMANDS}${command}`, body).then(
     (r) => {
       if (r.status === 200) return outcome.ok();
-      if (r.status === DROPPED) return;
+      if (r.status === DROPPED) return outcome.dropped?.();
+      if (r.status === FORBIDDEN) return outcome.forbidden();
       const why = (r.body as { error?: string } | null)?.error ?? String(r.status);
-      if (r.status === FORBIDDEN) return outcome.forbidden(why);
       outcome.refused(why);
       if (r.status === CLOSED) channel.reconnect();
     },

@@ -405,6 +405,93 @@ describe("server end to end", function () {
     await command(token, "midi.mapping.delete", { id: "ws-bend" });
   });
 
+  /** A browser's control connection, as the page's relay sees it (`Channel`): online, a `req` answered by its `res`. */
+  const relayLink = async (bearer: string) => {
+    const { ticket } = (await (await fetch(`${base}/api/auth/ws-ticket`, { method: "POST", headers: { authorization: `Bearer ${bearer}` } })).json()) as { ticket: string };
+    const ws = new WebSocket(`${base.replace("http", "ws")}/api/ws?ticket=${ticket}`, "light.control.v1.json");
+    const waiting = new Map<number, (r: { status: number; body: unknown }) => void>();
+    const warnings: string[] = [];
+    let closedWith: number | undefined;
+    ws.on("close", (code: number) => (closedWith = code));
+    await new Promise<void>((ok) =>
+      ws.on("message", (raw: Buffer) => {
+        const msg = JSON.parse(raw.toString()) as { t: string; id?: number; status?: number; body?: unknown; topic?: string; data?: { warning?: string } };
+        if (msg.t === "hello") {
+          ws.send(JSON.stringify({ t: "sub", id: 1, topic: "light:midi" }));
+          ok();
+        }
+        if (msg.t === "res" && msg.id !== undefined) waiting.get(msg.id)?.({ status: msg.status!, body: msg.body });
+        if (msg.t === "evt" && msg.data?.warning) warnings.push(msg.data.warning);
+      }),
+    );
+    let next = 10;
+    return {
+      ws,
+      warnings,
+      closedWith: () => closedWith,
+      channel: {
+        online: true,
+        reconnect: () => undefined,
+        request: (method: "POST", path: string, body: unknown) =>
+          new Promise<{ status: number; body: unknown }>((ok) => {
+            const id = next++;
+            waiting.set(id, ok);
+            ws.send(JSON.stringify({ t: "req", id, method, path, body }));
+          }),
+      },
+    };
+  };
+
+  it("drops a Web MIDI flood past its rate, counted and said once a second, and keeps the connection", async () => {
+    const token = await login("1234");
+    const link = await relayLink(token);
+    const before = ((await (await command(token, "midi.status", {})).json()) as { result: { webMidiDropped: number } }).result.webMidiDropped;
+    const statuses = await Promise.all(Array.from({ length: 1500 }, () => link.channel.request("POST", "/api/plugins/light/commands/midi.in", { port: "Web MIDI · Flood", bytes: [0xb0, 1, 1] })));
+    const dropped = statuses.filter((s) => s.status === 429).length;
+    expect(dropped).to.be.greaterThan(0); // the route is lossy: dropped, not refused, never the connection closed
+    expect(statuses.filter((s) => s.status !== 200 && s.status !== 429)).to.deep.equal([]);
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(link.closedWith()).to.equal(undefined);
+    const after = ((await (await command(token, "midi.status", {})).json()) as { result: { webMidiDropped: number } }).result.webMidiDropped;
+    expect(after - before).to.equal(dropped);
+    expect(link.warnings).to.deep.equal([`${dropped} message(s) Web MIDI jeté(s) : flux trop rapide`]); // once, for the whole second
+    link.ws.close();
+  });
+
+  it("8 faders moving and a wheel back at rest, relayed as the page does: the wheel's action is let go", async function () {
+    this.timeout(20_000);
+    const { MidiCoalescer } = await import("../../web/src/midi-coalesce.js");
+    const { relayOver } = await import("../../web/src/web-midi-relay.js");
+    const token = await login("1234");
+    await command(token, "midi.mapping.put", {
+      mapping: { id: "faders-bend", input: { type: "pitchbend", channel: 4, number: 0 }, mode: "momentary", threshold: 64, feedback: "none", on: { command: "blackout", args: { on: true } }, off: { command: "blackout", args: { on: false } } },
+    });
+    const link = await relayLink(token);
+    const outcome = { ok: () => undefined, refused: () => undefined, forbidden: () => undefined };
+    const coalescer: InstanceType<typeof MidiCoalescer> = new MidiCoalescer(
+      (bytes) => relayOver(link.channel, "midi.in", { port: "Web MIDI · Faders", bytes }, { ...outcome, dropped: () => coalescer.dropped(bytes) }),
+      (fn, ms) => setTimeout(fn, ms),
+      (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    );
+    coalescer.push([0xe3, 0, 127]); // the wheel pushed
+    const started = Date.now();
+    while (Date.now() - started < 2000) {
+      for (let k = 0; k < 8; k++) coalescer.push([0xb0, 20 + k, (Date.now() + k) % 128]);
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    expect(running.light.engine.isBlackout()).to.equal(true); // the push went through the flood
+    coalescer.push([0xe3, 0, 64]); // back at rest, amid the faders
+    for (let i = 0; i < 50; i++) {
+      for (let k = 0; k < 8; k++) coalescer.push([0xb0, 20 + k, i % 128]);
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    for (let i = 0; i < 200 && running.light.engine.isBlackout(); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(running.light.engine.isBlackout()).to.equal(false);
+    expect(link.closedWith()).to.equal(undefined);
+    link.ws.close();
+    await command(token, "midi.mapping.delete", { id: "faders-bend" });
+  });
+
   it("follows tap tempo", async () => {
     const token = await login("1234");
     await command(token, "tempo.tap", {});
