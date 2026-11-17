@@ -18,11 +18,21 @@ describe("WebSocket hub: live connections", () => {
   const closed: string[] = [];
   /** A ticket is « credential:n »: what it authenticates with. */
   const auth = { consumeStreamTicket: (ticket: string) => ticket.split(":")[0], isValidCredential: () => true } as unknown as AuthMiddleware;
-  const plugin = { id: "test", liveTopics: () => ({}), liveConnectionClosed: (id: string) => void closed.push(id) } as unknown as McpPlugin;
+  const dropped: string[] = [];
+  const handled: unknown[] = [];
+  const plugin = {
+    id: "test",
+    liveTopics: () => ({}),
+    liveConnectionClosed: (id: string) => void closed.push(id),
+    liveLossyRoutes: () => ["commands/midi.in"],
+    liveRequestDropped: (route: string) => void dropped.push(route),
+  } as unknown as McpPlugin;
 
   beforeEach(async () => {
     closed.length = 0;
-    hub = new WsHub({ plugins: [plugin], eventBus: new EventBus(), auth, heartbeatIntervalMs: 60_000 });
+    dropped.length = 0;
+    handled.length = 0;
+    hub = new WsHub({ plugins: [plugin], eventBus: new EventBus(), auth, heartbeatIntervalMs: 60_000, handleRequest: async (req) => (handled.push(req.body), { status: 200, body: { ok: true } }) });
     server = createServer();
     server.on("upgrade", (req, socket, head) => hub.handleUpgrade(req, socket, head));
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -33,10 +43,10 @@ describe("WebSocket hub: live connections", () => {
   });
 
   /** Opens a control connection; resolves with its socket and its « hello ». */
-  const open = (credential: string, previous?: string) =>
+  const open = (credential: string, previous?: string, channel = "control") =>
     new Promise<{ ws: WebSocket; hello: { connection: string; resumed?: string } }>((resolve, reject) => {
       const port = (server.address() as AddressInfo).port;
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/api/ws?ticket=${credential}:1${previous ? `&previous=${previous}` : ""}`, "light.control.v1.json");
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/api/ws?ticket=${credential}:1${previous ? `&previous=${previous}` : ""}`, `light.${channel}.v1.json`);
       ws.once("message", (raw: Buffer) => resolve({ ws, hello: JSON.parse(raw.toString()) as { connection: string; resumed?: string } }));
       ws.once("error", reject);
     });
@@ -78,5 +88,58 @@ describe("WebSocket hub: live connections", () => {
     await hub.close();
     await new Promise((r) => setTimeout(r, 50));
     expect(closed).to.deep.equal([]);
+  });
+
+  it("refuses a previous id from another channel of the same credential", async () => {
+    const stream = await open("token-a", undefined, "stream");
+    const control = await open("token-a", stream.hello.connection);
+    expect(control.hello.resumed).to.equal(undefined);
+    expect(stream.ws.readyState).to.equal(WebSocket.OPEN);
+    stream.ws.close();
+    control.ws.close();
+  });
+
+  /** Sends n midi.in requests over `ws`, `gapMs` apart; resolves with the statuses answered. */
+  const flood = (ws: WebSocket, n: number, gapMs: number) =>
+    new Promise<number[]>((resolve) => {
+      const statuses: number[] = [];
+      ws.on("message", (raw: Buffer) => {
+        const msg = JSON.parse(raw.toString()) as { t: string; status?: number };
+        if (msg.t === "res") statuses.push(msg.status!);
+        if (statuses.length === n) resolve(statuses);
+      });
+      let i = 0;
+      const next = () => {
+        ws.send(JSON.stringify({ t: "req", id: i + 1, method: "POST", path: "/api/plugins/test/commands/midi.in", body: { value: i === n - 1 ? "rest" : i } }));
+        if (++i < n) setTimeout(next, gapMs);
+      };
+      next();
+    });
+
+  it("a sustained Web MIDI flow (200/s for 5 s) closes nothing, and its last value arrives", async function () {
+    this.timeout(15_000);
+    const tab = await open("token-a");
+    const statuses = await flood(tab.ws, 1000, 5);
+    expect(tab.ws.readyState).to.equal(WebSocket.OPEN);
+    expect(statuses.every((s) => s === 200)).to.equal(true);
+    expect(handled.at(-1)).to.deep.equal({ value: "rest" });
+    tab.ws.close();
+  });
+
+  it("past its own rate a Web MIDI message is dropped (429) and said, the connection kept; the common rate untouched", async () => {
+    const tab = await open("token-a");
+    const statuses = await flood(tab.ws, 2000, 0);
+    expect(statuses.filter((s) => s === 429).length).to.be.greaterThan(0);
+    expect(dropped.length).to.equal(statuses.filter((s) => s === 429).length);
+    expect(dropped[0]).to.equal("commands/midi.in");
+    expect(tab.ws.readyState).to.equal(WebSocket.OPEN);
+    // another request still answers: the flood spent nothing of the common bucket
+    const answered = new Promise<number>((ok) => tab.ws.on("message", (raw: Buffer) => {
+      const msg = JSON.parse(raw.toString()) as { t: string; id?: number; status?: number };
+      if (msg.t === "res" && msg.id === 99999) ok(msg.status!);
+    }));
+    tab.ws.send(JSON.stringify({ t: "req", id: 99999, method: "POST", path: "/api/plugins/test/commands/other", body: {} }));
+    expect(await answered).to.equal(200);
+    tab.ws.close();
   });
 });

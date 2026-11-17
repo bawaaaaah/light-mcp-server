@@ -47,6 +47,11 @@ const LIMITS: Record<LiveChannel, { maxPayload: number; ratePerSecond: number; b
   control: { maxPayload: 1024 * 1024, ratePerSecond: 100, burst: 300 },
   stream: { maxPayload: 16 * 1024, ratePerSecond: 20, burst: 50 },
 };
+/**
+ * A lossy route's own rate (McpPlugin.liveLossyRoutes), per connection: a browser relaying MIDI sends far more than the
+ * pages' calls, and past this a message is dropped, never the connection closed.
+ */
+const LOSSY_LIMITS = { ratePerSecond: 400, burst: 800 };
 
 /**
  * A client that stops reading (a laptop lid closed on a dashboard tab, a stalled proxy) must not
@@ -190,6 +195,8 @@ interface Connection {
   /** topic id → the group it sits in */
   readonly subscriptions: Map<string, SubscriberGroup>;
   readonly bucket: TokenBucket;
+  /** The lossy routes' own bucket (LOSSY_LIMITS). */
+  readonly lossyBucket: TokenBucket;
   readonly remoteAddress: string | undefined;
   readonly forwardedHeaders: Record<string, string>;
   inFlight: number;
@@ -237,6 +244,8 @@ export class WsHub {
   private readonly connections = new Set<Connection>();
   /** The open connections by id: a reconnecting browser names its previous one. */
   private readonly byId = new Map<string, Connection>();
+  /** The plugins' lossy routes (McpPlugin.liveLossyRoutes), by full path. */
+  private readonly lossyRoutes = new Map<string, { plugin: McpPlugin; route: string }>();
   private readonly topics = new Map<string, TopicEntry>();
   /** `${pluginId}:${eventType}` → the topics built from that event */
   private readonly topicsBySource = new Map<string, TopicEntry[]>();
@@ -262,6 +271,7 @@ export class WsHub {
       }
     }
 
+    for (const plugin of opts.plugins) for (const route of plugin.liveLossyRoutes?.() ?? []) this.lossyRoutes.set(`/api/plugins/${plugin.id}/${route}`, { plugin, route });
     this.unsubscribeBus = opts.eventBus.subscribe((event) => this.onBusEvent(event));
     this.heartbeatTimer = setInterval(() => this.heartbeat(), opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);
     this.heartbeatTimer.unref?.();
@@ -421,16 +431,17 @@ export class WsHub {
       congestedSince: undefined,
       subscriptions: new Map(),
       bucket: { tokens: LIMITS[spec.channel].burst, updatedAt: Date.now() },
+      lossyBucket: { tokens: LOSSY_LIMITS.burst, updatedAt: Date.now() },
       remoteAddress: upgrade.socket.remoteAddress,
       forwardedHeaders: pickHeaders(upgrade, FORWARDED_HEADERS),
       inFlight: 0,
       gone: new AbortController(),
       connectedAt: Date.now(),
     };
+    const old = previous === undefined ? undefined : this.byId.get(previous);
+    const resumed = old !== undefined && old.credential === credential && old.channel === conn.channel;
     this.connections.add(conn);
     this.byId.set(conn.id, conn);
-    const old = previous === undefined ? undefined : this.byId.get(previous);
-    const resumed = old !== undefined && old !== conn && old.credential === credential && old.channel === conn.channel;
     if (resumed) {
       this.dropConnection(old);
       try {
@@ -494,10 +505,8 @@ export class WsHub {
     this.dropConnection(conn);
   }
 
-  private takeToken(conn: Connection): boolean {
-    const limits = LIMITS[conn.channel];
+  private takeToken(bucket: TokenBucket, limits: { ratePerSecond: number; burst: number }): boolean {
     const now = Date.now();
-    const bucket = conn.bucket;
     bucket.tokens = Math.min(limits.burst, bucket.tokens + ((now - bucket.updatedAt) / 1000) * limits.ratePerSecond);
     bucket.updatedAt = now;
     if (bucket.tokens < 1) return false;
@@ -507,10 +516,6 @@ export class WsHub {
 
   private onMessage(conn: Connection, data: RawData, isBinary: boolean): void {
     if (!this.connections.has(conn)) return;
-    if (!this.takeToken(conn)) {
-      this.closeConnection(conn, WS_CLOSE.tooManyMessages, "too many messages");
-      return;
-    }
 
     let decoded: unknown;
     try {
@@ -522,12 +527,33 @@ export class WsHub {
 
     const parsed = ClientMessageSchema.safeParse(decoded);
     if (!parsed.success) {
+      if (!this.takeToken(conn.bucket, LIMITS[conn.channel])) {
+        this.closeConnection(conn, WS_CLOSE.tooManyMessages, "too many messages");
+        return;
+      }
       const id = MessageId.safeParse((decoded as { id?: unknown } | null)?.id);
       this.sendError(conn, id.success ? id.data : undefined, "invalid-message", parsed.error.issues[0]?.message);
       return;
     }
 
     const message: ClientMessage = parsed.data;
+    // a lossy route (a sustained MIDI flow) has its own rate: past it the message is dropped and said, the connection kept;
+    // anything else spends the common one, and past it the connection is closed. Read once decoded (bounded by maxPayload)
+    const lossy = message.t === "req" && conn.channel === "control" ? this.lossyRoutes.get(message.path) : undefined;
+    if (lossy) {
+      if (!this.takeToken(conn.lossyBucket, LOSSY_LIMITS)) {
+        this.send(conn, { t: "res", id: message.id, status: 429, body: { error: "dropped: too many messages" } });
+        try {
+          lossy.plugin.liveRequestDropped?.(lossy.route, conn.id);
+        } catch (err) {
+          console.error(`[ws] ${lossy.plugin.id}: drop handler failed:`, err);
+        }
+        return;
+      }
+    } else if (!this.takeToken(conn.bucket, LIMITS[conn.channel])) {
+      this.closeConnection(conn, WS_CLOSE.tooManyMessages, "too many messages");
+      return;
+    }
     switch (message.t) {
       case "sub":
         this.subscribe(conn, message.id, message.topic, message.params);

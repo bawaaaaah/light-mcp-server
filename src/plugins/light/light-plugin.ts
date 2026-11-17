@@ -677,6 +677,16 @@ export class LightPlugin implements McpPlugin {
     });
   }
 
+  /** A browser's Web MIDI relay is a sustained flow: past its own rate a message is dropped, never the connection closed. */
+  liveLossyRoutes(): string[] {
+    return ["commands/midi.in"];
+  }
+
+  /** A Web MIDI message dropped (its rate exceeded): counted, and said on the MIDI page's monitor. */
+  liveRequestDropped(): void {
+    this.midi.dropped();
+  }
+
   /** A browser's connection closed: the Web MIDI inputs it relayed go (as the « web » port-loss setting says). */
   liveConnectionClosed(id: string): void {
     this.midi.clientClosed(id);

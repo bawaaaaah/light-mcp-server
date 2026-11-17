@@ -78,4 +78,12 @@ export interface McpPlugin {
    * carries (`wsConnectionOf`). Never called when the server stops: the show stops as it stands.
    */
   liveConnectionClosed?(id: string): void;
+  /**
+   * Routes (relative to `/api/plugins/<id>/`) whose requests over a live connection carry a sustained flow (a browser's Web
+   * MIDI): they get a rate of their own, and past it a request is dropped — answered 429 and said to `liveRequestDropped` —
+   * never a reason to close the connection the whole tab shares.
+   */
+  liveLossyRoutes?(): string[];
+  /** A request to a lossy route dropped (its rate exceeded), for the plugin to count and show. */
+  liveRequestDropped?(route: string, connectionId: string): void;
 }

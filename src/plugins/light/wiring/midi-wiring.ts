@@ -119,6 +119,7 @@ export class MidiWiring {
       },
       portLoss: () => this.portLoss(),
       clientOpen: (client) => !this.closedClients.has(client),
+      webMidiDropped: () => this.droppedTotal,
       setPortLoss: async (portLoss) => {
         config.put({ ...config.get(), portLoss });
         await config.save();
@@ -133,6 +134,25 @@ export class MidiWiring {
 
   private releasesOnLoss(source: MidiSource): boolean {
     return this.portLoss()[source === "rtp" ? "rtp" : source === "web" ? "web" : "local"] === "release";
+  }
+
+  /** Web MIDI messages dropped past their rate (since the server started), and those not yet said on the monitor. */
+  droppedTotal = 0;
+  private droppedUnsaid = 0;
+  private droppedTimer: NodeJS.Timeout | undefined;
+
+  /** A Web MIDI message dropped: counted, said on the monitor at most once a second (a flood must not flood it too). */
+  dropped(): void {
+    this.droppedTotal++;
+    this.droppedUnsaid++;
+    if (this.droppedTimer) return;
+    this.droppedTimer = setTimeout(() => {
+      this.droppedTimer = undefined;
+      const n = this.droppedUnsaid;
+      this.droppedUnsaid = 0;
+      this.deps.publish("midi", { warning: say(`${n} message(s) Web MIDI jeté(s) : flux trop rapide`, `${n} Web MIDI message(s) dropped: flow too fast`) });
+    }, 1000);
+    this.droppedTimer.unref();
   }
 
   /** The browsers' connections said closed (the last ones): a request still on its way from one holds nothing again. */

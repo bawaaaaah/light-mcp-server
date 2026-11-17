@@ -294,6 +294,16 @@ describe("pitch bend through the plugin", () => {
     );
   });
 
+  it("remembers the last 256 closed connections: an older one's late message is no longer refused", async function () {
+    this.timeout(10_000);
+    const { over, plugin } = await wheelPlugin("momentary");
+    for (let i = 0; i <= 256; i++) plugin.liveConnectionClosed(`gone-${i}`);
+    const late = (id: string) => over(id)("midi.in", { port: "Web MIDI · Pad", bytes: [0x90, 40, 100] }).then(() => "accepted", () => "refused");
+    expect(await late("gone-0")).to.equal("accepted"); // evicted: the 257th closed pushed it out
+    expect(await late("gone-1")).to.equal("refused");
+    expect(await late("gone-256")).to.equal("refused");
+  });
+
   it("a plain HTTP caller can neither release a browser's hold nor tie one to a connection", async function () {
     this.timeout(10_000);
     const { run, over, active, until, plugin } = await wheelPlugin("momentary");

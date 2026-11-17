@@ -371,6 +371,17 @@ describe("server end to end", function () {
     const tab = await open(token);
     expect(await tab.relay([0xe2, 0, 127])).to.equal(200);
     await until(true);
+    // plain HTTP claiming that connection (a header, a body field): it reaches nothing the tab holds
+    const forged = { authorization: `Bearer ${token}`, "content-type": "application/json", "x-light-connection": tab.hello.connection, "x-light-ws-connection": tab.hello.connection };
+    for (const [name, body] of [
+      ["midi.in", { port: "Web MIDI · Pad", bytes: [0xe2, 0, 0], client: tab.hello.connection, connection: tab.hello.connection }],
+      ["midi.web.closed", { port: "Web MIDI · Pad", client: tab.hello.connection, connection: tab.hello.connection }],
+    ] as const) {
+      const res = await fetch(`${base}/api/plugins/light/commands/${name}`, { method: "POST", headers: forged, body: JSON.stringify(body) });
+      expect(res.status, name).to.equal(200);
+    }
+    await new Promise((r) => setTimeout(r, 50));
+    expect(running.light.engine.isBlackout()).to.equal(true);
     tab.ws.close();
     await until(false);
     // the same browser reconnecting: its previous connection let go at once, the old socket still open

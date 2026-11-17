@@ -58,6 +58,8 @@ export interface MidiServices {
   selectProfile: (name: string) => Promise<void>;
   saveProfile: (name: string, profile: MidiProfile) => Promise<void>;
   portLoss: () => PortLoss;
+  /** Web MIDI messages dropped past their rate since the server started. */
+  webMidiDropped: () => number;
   /** Whether a browser's live connection is still open (not yet said closed). */
   clientOpen: (client: string) => boolean;
   setPortLoss: (next: PortLoss) => Promise<void>;
@@ -70,12 +72,12 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     name: "midi.status",
     title: "État MIDI",
     titleEn: "MIDI status",
-    description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output), and how long Node keeps a message waiting (node: p50, p99 and max of the last 10 s, the worst stall of the last hour, in ms).",
+    description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output), how many Web MIDI messages were dropped past their rate (webMidiDropped), and how long Node keeps a message waiting (node: p50, p99 and max of the last 10 s, the worst stall of the last hour, in ms).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "live"],
     schema: z.object({}),
-    run: () => ({ ...s.hub.status(), profile: s.activeProfile(), profiles: Object.keys(s.profiles()), profileConfig: s.profiles()[s.activeProfile()], portLoss: s.portLoss(), node: s.loopDelay() }),
+    run: () => ({ ...s.hub.status(), profile: s.activeProfile(), profiles: Object.keys(s.profiles()), profileConfig: s.profiles()[s.activeProfile()], portLoss: s.portLoss(), webMidiDropped: s.webMidiDropped(), node: s.loopDelay() }),
   });
 
   reg.register({

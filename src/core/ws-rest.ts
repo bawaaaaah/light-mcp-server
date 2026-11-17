@@ -10,7 +10,7 @@ const WS_CONNECTION = Symbol("light.wsConnection");
  * whatever its headers or body say.
  */
 export function wsConnectionOf(req: http.IncomingMessage): string | undefined {
-  return (req.socket as unknown as Record<symbol, string | undefined>)[WS_CONNECTION];
+  return (req.socket as { [WS_CONNECTION]?: string })[WS_CONNECTION];
 }
 
 /**
