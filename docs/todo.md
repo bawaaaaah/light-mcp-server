@@ -62,6 +62,23 @@ Issu de la cartographie du code du 2026-11-16 (jscpd 4.0.5 : 0,89 % de lignes du
   - **Essais** : avant correction, suite complète avec 16 cœurs saturés : 1 échec (« getting started ») ; bibliothèque seule sous charge : 9 échecs sur 24. Après : deux suites complètes en même temps (ports 18981 et 18985, `UI_SKIP_BUILD=1`), chacune deux fois de suite, 4 × 313 verts ; puis une suite seule, 313 verts. `UI_SKIP_BUILD=1` est à mettre aux deux suites lancées ensemble, après un `npm run build -w web`.
   - Les `waitForTimeout` restants mesurent un délai voulu par le produit (garde du lancement, appui long, double clic, survol) : laissés.
 
+### Suite de la revue du 2026-11-17 (prioritaire, avant d'avancer)
+Revue de la structure après T43 à T51 (commit 7f341c1) : jscpd 0,05 % de lignes dupliquées (33 sur 72 223), aucun import de `src/core` vers le plugin, aucun module serveur à disque ou réseau atteint par le web à l'exécution. Restent deux cycles d'imports, trois conversions de type évitables et deux fichiers trop chargés. Même règle que plus haut : aucun comportement changé, suite complète verte avant et après.
+
+### T52 — Casser les deux cycles d'imports par un troisième fichier (demandé le 2026-11-17)
+- **Web** : 73 fichiers importent `useT` depuis `web/src/App.tsx` (contextes `I18n`, `Nav`, `Me`, l. 55-64), ce qui fait un cycle de 24 fichiers autour de la racine. **À faire** : les traductions (`I18n`, `useT`) dans un fichier dédié, `Nav` et `Me` dans un autre ; plus aucun composant n'importe `App.tsx`.
+- **Serveur** : `venue/venue.ts` et `venue/tracks.ts` s'importent l'un l'autre (`rawOver`, `Color`, `CoarseFine`, `LooksMerge`). **À faire** : sortir les fonctions pures de fusion des images (`venue.ts` l. 112-360 : `rawOver`, `mergeColors`, `weighted`, `settle`…) dans un troisième fichier que les deux importent.
+- **Vérifié par** : plus aucun cycle d'imports à l'exécution dans `src` et `web/src`.
+
+### T53 — Importer les schémas des collections au lieu de convertir (demandé le 2026-11-17)
+- `show-command-scope.ts` (l. 119 et 126) lit `mappings` et `songs` avec un schéma vide puis convertit (`as unknown as`) ; `import-commands.ts` (l. 158) fait de même. **À faire** : importer les vrais schémas de ces collections, pour que la lecture soit typée et qu'une forme fausse se voie. Revoir au passage les autres `as unknown as` (15) et ne garder que ceux que zod impose.
+
+### T54 — Un module par widget des tableaux de bord (demandé le 2026-11-17)
+- `DashboardsPage` (`web/src/pages/Dashboards.tsx`) est un seul composant de près de 1 300 lignes pour 19 sortes de widgets. **À faire** : un module par sorte de widget, et le placement (`settle`, tailles, glisser) dans un module pur testé à part. Après T52, qui touche les mêmes imports.
+
+### T55 — Découper ce qui est trop chargé, quand c'est pertinent (demandé le 2026-11-17)
+- Le constructeur de `LightPlugin` (`light-plugin.ts` l. 205-554, 62 imports) câble tout au démarrage. **À faire** : le découper en fonctions nommées (MIDI, AbleSet, bibliothèques et intentions, publications vers le hub) ; regarder les autres gros fichiers et ne découper que s'il y a un gain clair. `runtime.ts`, `motion-controller.ts` et `i18n.ts` peuvent rester tels quels (revue du 2026-11-17).
+
 ## 🔴 Fiabilité de la sortie et du moteur
 
 ### T1 — Flashs sur la sortie DMX USB après un certain temps
@@ -408,7 +425,13 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
 ### T50 — Export complet du logiciel pour le dupliquer sur un autre ordinateur (demandé le 2026-11-16)
 - Aujourd'hui, une archive `.lightshow` emporte **un show** (et les définitions et intentions qu'il cite), et `backup.create` sauvegarde sur la même machine. Il manque un export de **toute l'installation** à restaurer d'un coup sur un autre ordinateur.
 - **À prévoir** : tous les shows et leurs lieux, la bibliothèque des définitions (dossier partagé, copies propres aux lieux, alias, corbeille ?), la bibliothèque personnelle (intentions, presets de couleur), les réglages (sorties Art-Net / sACN / DMX USB, MIDI, OSC, AbleSet), les utilisateurs et leurs droits.
-- **À trancher** : les secrets (jetons, clé maître) et les clés d'accès (passkeys, liées au nom de la machine) — exportés, chiffrés par un mot de passe, ou à refaire sur la nouvelle machine ; les sorties réseau (adresses propres à l'ancienne machine) à revoir à l'arrivée ; fusion ou remplacement si la nouvelle machine a déjà des données ; un aperçu avant restauration comme pour les archives.
+- **Tranché le 2026-11-17** (voir [decisions.md](decisions.md)) :
+  - **Secrets et clés d'accès** (jetons, clé maître, passkeys) : une case à l'export, **décochée** par défaut, et une case à l'import, **décochée** par défaut.
+  - **Sorties réseau** (Art-Net, sACN, DMX USB et leurs adresses) : proposées à l'export et à l'import, **cochées** par défaut.
+  - **Fusion ou remplacement** : un choix proposé à l'import.
+  - **Aperçu** : oui, sous forme d'arbre à cocher, à l'export comme à l'import ; cocher ou décocher un parent coche ou décoche ses enfants. Partir des arbres (tree-view) du skill `ui-styling`.
+- **À vérifier en premier** : que l'export complet sait n'emporter qu'une partie cochée (et l'import n'en restaurer qu'une partie), et que l'arbre convient à ce choix.
+- **Reste à préciser** : si les secrets exportés sont chiffrés par un mot de passe.
 
 ## Restes de la revue du 2026-11-11 (T18a, T21, T22, T38, T11)
 
@@ -473,7 +496,7 @@ Principe : d'abord ce qui empêche de jouer, puis les gains rapides, puis les d�
 
 | Phase | Items | But | Fini quand |
 |---|---|---|---|
-| **P. Nettoyage (prioritaire, 2026-11-16)** | T43, T44, T45, T46, T47, puis T48 et T49 après T20b et T28 | moins de copies serveur/web, rafraîchissements fiables, fichiers lisibles | aucun comportement changé : suite complète verte avant et après chaque lot ; plus de test de parité serveur/web |
+| **P. Nettoyage (prioritaire, 2026-11-16)** | T43 à T49 et T51 faits ; puis T52, T53, T55, et T54 après T52 (revue du 2026-11-17) | moins de copies serveur/web, rafraîchissements fiables, fichiers lisibles | aucun comportement changé : suite complète verte avant et après chaque lot ; plus de test de parité serveur/web |
 | **0. Jouer proprement** | T2 ([plan-t2.md](plan-t2.md)), T4, T3 (avec sa précision sur les du groupe extérieur de l'utilisateur) | plus de flash en changeant de look, fader DCA juste, fondu respecté partout | un test moteur A → B → A passe ; le fader DCA garde sa course avec le lissage ; le fondu agit sur tous les projecteurs |
 | **1. Gains rapides** | T7 fait, T17 fait, T33 fait, T31 fait, T12, T16 faits, T14 | inversion pan/tilt, dossiers de looks, gestion des dossiers, panneau de la lyre sélectionnée, canaux du type choisi, instantané au démarrage, thématiques | chacun visible dans l'interface et couvert par un test UI |
 | **2. Définitions saines** | T20a (détecter les doublons et avertir), T21, T22, T18 | plus de définition choisie au hasard, le Wash allume ses 3 zones, patch contrôlé, roue de couleurs fiable | « Vérifier le show » signale un doublon ; les 10 couleurs du Spot tombent sur la bonne case ; Wash 29 canaux piloté sur toutes les zones |
