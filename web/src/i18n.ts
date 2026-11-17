@@ -1714,6 +1714,9 @@ const fr = {
   editLayoutHelp: "Modifier la disposition (clic droit sur un bouton, un DCA ou un fader pour le régler)",
   assignLook: "Look lancé",
   assignTarget: "Pilote",
+  /** A widget's target no longer in the show (deleted): kept, and said. */
+  targetMissing: "{id} (introuvable)",
+  pitchBend: "Pitch bend",
   widgetLabel: "Libellé",
   noMidi: "aucune note ni CC",
   learnMidi: "Apprendre une note ou un CC",
@@ -3848,6 +3851,8 @@ const en: typeof fr = {
   editLayoutHelp: "Edit the layout (right-click a button, a DCA or a fader to set it up)",
   assignLook: "Look started",
   assignTarget: "Drives",
+  targetMissing: "{id} (not found)",
+  pitchBend: "Pitch bend",
   widgetLabel: "Label",
   noMidi: "no note or CC",
   learnMidi: "Learn a note or a CC",

@@ -843,6 +843,19 @@ test("right-click on a dashboard button: assign another look, learn a MIDI note 
   expect(errors).toEqual([]);
 });
 
+test("right-click on a dashboard button: a pitch bend that plays it is said « Pitch bend », not « Note »", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "midi.mapping.put", { mapping: { id: "bend-hole", label: "Bend", input: { type: "pitchbend", channel: 3, number: 0 }, on: { command: "look.go", args: { id: "hole" } } } });
+  await page.locator(".dgrid .cell button", { hasText: "hole" }).first().click({ button: "right" });
+  const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+  await expect(menu.locator(".midi-head strong", { hasText: "Pitch bend" })).toBeVisible();
+  await expect(menu.getByRole("button", { name: "Supprimer · Pitch bend · 3" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await api(page, "midi.mapping.delete", { id: "bend-hole" });
+  expect(errors).toEqual([]);
+});
+
 test("roles: a volunteer sees only Live and their account; a right taken away greys its button", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page, "5678");
@@ -1256,7 +1269,7 @@ test("dashboards: a new one, a look dragged from the palette, undo and redo, a s
   expect(errors).toEqual([]);
 });
 
-test("dashboards: a snapshot widget gets its snapshot from the edit panel, as from its menu", async ({ page }) => {
+test("dashboards: a snapshot widget gets its snapshot from the edit panel, as from its menu, and keeps it once deleted", async ({ page }) => {
   const errors = watchErrors(page);
   page.on("dialog", (d) => void d.accept());
   await login(page);
@@ -1266,15 +1279,22 @@ test("dashboards: a snapshot widget gets its snapshot from the edit panel, as fr
   await expect(page.locator(".dashboards .bar .tab.active")).toContainText("Nouveau dashboard");
   await page.locator(".palette .chips:not(.bound) .chip", { hasText: "Instantané" }).click(); // added unbound, and selected
   const panel = page.locator("section.editor:not(.many)");
-  await panel.locator("select").first().selectOption({ label: "Cible essai" });
+  await panel.getByLabel("Pilote").selectOption({ label: "Cible essai" });
   await expect(page.locator(".dgrid .cell button.snapshot", { hasText: "Cible essai" })).toBeVisible();
   await page.getByRole("button", { name: "✔" }).click();
   await expect(page.locator(".dgrid button.snapshot", { hasText: "Cible essai" })).toBeVisible();
+  type Saved = { name: string; widgets: { id: string; kind: string; target?: string }[] };
+  const saved = ((await api(page, "dashboard.list")) as Saved[]).find((d) => d.name === "Nouveau dashboard")!;
+  expect(saved.widgets.filter((w) => w.kind === "snapshot").map((w) => w.target)).toEqual(["cible-essai"]);
+  // the snapshot deleted: the widget keeps its target, said « introuvable » in the panel rather than « — »
+  await api(page, "snapshot.delete", { id: "cible-essai" });
   await page.getByRole("button", { name: "✎" }).click();
+  await page.locator(`.dgrid .cell[data-widget="${saved.widgets[0]!.id}"]`).click();
+  await expect(panel.getByLabel("Pilote")).toHaveValue("cible-essai");
+  await expect(panel.getByLabel("Pilote").locator("option:checked")).toHaveText("cible-essai (introuvable)");
   await page.locator(".dash-manage").getByRole("button", { name: "Supprimer" }).click();
   await expect(page.locator(".dashboards .bar .tab", { hasText: "Nouveau dashboard" })).toHaveCount(0);
   await page.getByRole("button", { name: "✕", exact: true }).first().click();
-  await api(page, "snapshot.delete", { id: "cible-essai" });
   expect(errors).toEqual([]);
 });
 

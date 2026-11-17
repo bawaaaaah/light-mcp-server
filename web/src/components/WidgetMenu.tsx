@@ -7,7 +7,8 @@ import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
-import { targetListOf, type ButtonMode, type Widget, type WidgetKind } from "../dashboard-layout";
+import { targetListOf, type ButtonMode, type TargetList, type Widget, type WidgetKind } from "../dashboard-layout";
+import type { Texts } from "../i18n";
 
 /** What the menu reads and changes of a widget: not its place on the grid. */
 type MenuWidget = Omit<Widget, "x" | "y" | "w" | "h">;
@@ -86,9 +87,47 @@ export function SetSelect({ value, sets, mixed = false, onPick }: { value: strin
   );
 }
 
-const inputText = (i: MappingDraft["input"]) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "cc" ? "CC" : i.type === "programchange" ? "PC" : "note"} ${i.number} · ${i.channel}`);
+/** An input's type and number; a pitch bend has no number (the whole wheel of its channel). */
+const inputKey = (t: Texts, i: MappingDraft["input"], note: string) => (i.type === "pitchbend" ? t.pitchBend : `${i.type === "cc" ? "CC" : i.type === "programchange" ? "PC" : note} ${i.number}`);
+const inputText = (t: Texts, i: MappingDraft["input"]) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${inputKey(t, i, "note")} · ${i.channel}`);
 /** The input as the menu shows it, its channel beside it. */
-const inputName = (i: MappingDraft["input"]) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "cc" ? "CC" : i.type === "programchange" ? "PC" : "Note"} ${i.number}`);
+const inputName = (t: Texts, i: MappingDraft["input"]) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : inputKey(t, i, "Note"));
+
+/** The show's lists a widget picks its target from, by `targetListOf`. */
+export type TargetLists = Record<TargetList, Named[]>;
+
+/**
+ * What a widget drives, chosen in its menu and in the edit panel alike: the list of its kind (none: no choice), named
+ * for its kind; « — » (or « Toutes les lyres » to freeze them all) clears it, and a target no longer in the show is
+ * kept, said « introuvable ». Hidden when there is nothing to choose and nothing to say.
+ */
+export function TargetSelect({ kind, value, lists, field = false, onChange }: { kind: WidgetKind; value: string | undefined; lists: TargetLists; field?: boolean; onChange: (target: string | undefined) => void }): ReactElement | null {
+  const t = useT();
+  const list = targetListOf(kind);
+  const options = list ? lists[list] : [];
+  const missing = Boolean(list && value && !options.some((x) => x.id === value));
+  if (!options.length && !missing) return null;
+  const name = kind === "look" ? t.assignLook : kind === "target" ? t.targets.aimTarget : t.assignTarget;
+  const select = (
+    <select aria-label={field ? undefined : name} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
+      <option value="">{kind === "motion-lock" ? t.motionLock.allHeads : "—"}</option>
+      {missing && <option value={value}>{t.targetMissing.replace("{id}", () => value!)}</option>}
+      {options.map((x) => (
+        <option key={x.id} value={x.id}>
+          {x.name}
+        </option>
+      ))}
+    </select>
+  );
+  return field ? (
+    <label className="field">
+      <span>{name}</span>
+      {select}
+    </label>
+  ) : (
+    select
+  );
+}
 
 /**
  * Right-click on a dashboard widget (live, no edit mode): what it drives (look, DCA, fader), its
@@ -149,8 +188,9 @@ export function WidgetMenu({
     const a = actionOf(m);
     return a.action === action.action && a.target === action.target;
   }) : [];
+  const lists: TargetLists = { looks, faders, groups, snapshots, targets: targetList, positions };
   const list = targetListOf(widget.kind);
-  const targets: Named[] = list ? { looks, faders, groups, snapshots, targets: targetList, positions }[list] : [];
+  const targets: Named[] = list ? lists[list] : [];
   const learn = () => {
     if (!action) return;
     setLearning(true);
@@ -176,19 +216,7 @@ export function WidgetMenu({
       {widget.kind === "look" && widget.target && (
         <LookPeek key={widget.target} id={widget.target} onStage={setWide} />
       )}
-      {targets.length > 0 && (
-        <label className="field">
-          <span>{widget.kind === "look" ? t.assignLook : widget.kind === "target" ? t.targets.aimTarget : t.assignTarget}</span>
-          <select value={widget.target ?? ""} onChange={(e) => onChange({ target: e.target.value || undefined })}>
-            <option value="">{widget.kind === "motion-lock" ? t.motionLock.allHeads : "—"}</option>
-            {targets.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      <TargetSelect field kind={widget.kind} value={widget.target} lists={lists} onChange={(target) => onChange({ target })} />
       <label className="field">
         <span>{t.widgetLabel}</span>
         <input value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
@@ -265,14 +293,14 @@ export function WidgetMenu({
               return (
                 <li key={m.id} className="midi-input">
                   <div className="midi-head">
-                    <strong>{inputName(m.input)}</strong>
+                    <strong>{inputName(t, m.input)}</strong>
                     {m.input.port !== "OS2L" && (
                       <small>
                         {t.midiChannel} {m.input.channel}
                       </small>
                     )}
                     <span className="grow" />
-                    <button className="ghost" title={t.delete} aria-label={`${t.delete} · ${inputText(m.input)}`} onClick={() => void cmd("midi.mapping.delete", { id: m.id }).then(loadMappings)}>
+                    <button className="ghost" title={t.delete} aria-label={`${t.delete} · ${inputText(t, m.input)}`} onClick={() => void cmd("midi.mapping.delete", { id: m.id }).then(loadMappings)}>
                       ✕
                     </button>
                   </div>
@@ -283,7 +311,7 @@ export function WidgetMenu({
                       {action.action === "position" ? (
                         <small className="hint">{t.positions.modeLockedHint}</small>
                       ) : (action.action === "look" || action.action === "blackout" || action.action === "freeze" || ((m.input.type === "cc" || m.input.type === "programchange") && !levelCc)) && (
-                        <select aria-label={`${t.mode} · ${inputText(m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => put({ mode: e.target.value as ButtonMode })}>
+                        <select aria-label={`${t.mode} · ${inputText(t, m.input)}`} title={t.midiModeHelp} value={m.mode} onChange={(e) => put({ mode: e.target.value as ButtonMode })}>
                           {(["latch", "momentary", "trigger", "toggle"] as const).map((mode) => (
                             <option key={mode} value={mode}>
                               {t.modes[mode]}
@@ -300,7 +328,7 @@ export function WidgetMenu({
                             min={0}
                             max={126}
                             step={1}
-                            aria-label={`${t.threshold} · ${inputText(m.input)}`}
+                            aria-label={`${t.threshold} · ${inputText(t, m.input)}`}
                             defaultValue={m.threshold ?? 0}
                             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
                             onBlur={(e) => {
