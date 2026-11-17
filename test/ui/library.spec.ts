@@ -266,10 +266,26 @@ test("library: a dialog opened from the trash gives the keyboard back to its but
   await api(page, "library.trash.empty");
 });
 
-test("library by keyboard: a row deleted from its menu leaves the focus on the table's title, after a trash dialog too", async ({ page }) => {
+/** By the keyboard only: the row's menu (Shift+F10), its last entry « Supprimer », then « Mettre à la corbeille ». */
+async function deleteByKeyboard(page: Page, model: string): Promise<void> {
+  await page.getByRole("button", { name: `Actions sur Test ${model}`, exact: true }).focus();
+  await page.keyboard.press("Shift+F10");
+  const menu = page.getByRole("dialog", { name: `Actions sur Test ${model}`, exact: true });
+  await expect(menu.getByRole("button", { name: /Dupliquer/ })).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(menu.getByRole("button", { name: /Supprimer/ })).toBeFocused();
+  await page.keyboard.press("Enter");
+  const confirm = page.getByRole("dialog", { name: `Supprimer Test ${model}` }).getByRole("button", { name: "Mettre à la corbeille" });
+  await confirm.focus();
+  await page.keyboard.press("Enter");
+  await expect(row(page, model)).toHaveCount(0);
+}
+
+test("library by keyboard: a row deleted from its menu gives the focus to the next row, the table's title when none is left", async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 });
   await signIn(page);
   await api(page, "library.duplicate", { id: "shared/mode-par.qxf", model: "Focus Gone" });
+  await api(page, "library.duplicate", { id: "shared/mode-par.qxf", model: "Focus Last" });
   const trashed = (await api(page, "library.duplicate", { id: "shared/mode-par.qxf", model: "Focus Trash" })) as { id: string };
   await api(page, "library.delete", { id: trashed.id }); // something in the trash: its « Vider » button shows
   await page.locator("nav.pages button", { hasText: "Bibliothèque" }).click();
@@ -278,10 +294,15 @@ test("library by keyboard: a row deleted from its menu leaves the focus on the t
   await empty.click();
   await page.getByRole("dialog", { name: "Vider la corbeille" }).getByRole("button", { name: "Annuler" }).click();
   await expect(empty).toBeFocused();
-  await page.getByRole("button", { name: "Actions sur Test Focus Gone" }).focus();
-  await page.keyboard.press("Shift+F10");
-  await page.getByRole("dialog", { name: "Actions sur Test Focus Gone" }).getByRole("button", { name: /Supprimer/ }).click();
-  await page.getByRole("dialog", { name: "Supprimer Test Focus Gone" }).getByRole("button", { name: "Mettre à la corbeille" }).click();
-  await expect(row(page, "Focus Gone")).toHaveCount(0);
-  await expect(page.locator("#library-list")).toBeFocused(); // never the page's body, nor the trash's title
+  // the row after « Focus Gone » in the table, read before it goes
+  const labels = await page.locator("button.row-actions").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
+  const next = labels[labels.indexOf("Actions sur Test Focus Gone") + 1]!;
+  expect(next).toBeTruthy();
+  await deleteByKeyboard(page, "Focus Gone");
+  await expect(page.getByRole("button", { name: next, exact: true })).toBeFocused(); // never the page's body, nor the trash's title
+  // the only row shown deleted: nothing left in the table, its title takes the keyboard
+  await page.getByRole("searchbox", { name: "Rechercher" }).fill("focus last");
+  await expect(page.locator("table.library-table tbody tr")).toHaveCount(1);
+  await deleteByKeyboard(page, "Focus Last");
+  await expect(page.locator("#library-list")).toBeFocused();
 });

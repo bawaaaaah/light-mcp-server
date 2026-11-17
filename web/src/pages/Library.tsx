@@ -146,6 +146,8 @@ export function LibraryPage(): ReactElement {
   };
   /** The row whose ⋯ a dialog opened from the menu gives the keyboard back to, or the button that opened it. */
   const lastRow = useRef<string | null>(null);
+  /** The rows after and before it when its menu was used: where the keyboard goes if the action took the row away. */
+  const rowNeighbours = useRef<string[]>([]);
   const opener = useRef<HTMLElement | null>(null);
   /** The section the opener was in: its title takes the focus when the opener went with the action (a restored entry). */
   const openerSection = useRef<HTMLElement | null>(null);
@@ -177,7 +179,9 @@ export function LibraryPage(): ReactElement {
     // the keyboard already went elsewhere while the lists were read again (a busy machine answers late): leave it there
     const active = document.activeElement;
     if (active && active !== document.body && active !== opener.current) return;
-    const row = lastRow.current ? document.querySelector<HTMLElement>(`button[data-row-actions="${CSS.escape(lastRow.current)}"]`) : null;
+    const rowButton = (id: string) => document.querySelector<HTMLElement>(`button[data-row-actions="${CSS.escape(id)}"]`);
+    // the row's ⋯, else (the row gone with the action) its neighbour's
+    const row = lastRow.current ? [lastRow.current, ...rowNeighbours.current].map(rowButton).find(Boolean) : null;
     // the button gone with what it acted on (a restored entry, an alias removed, the trash emptied): its section's title
     const title = openerSection.current?.isConnected ? openerSection.current.querySelector<HTMLElement>("h2") : null;
     (row ?? (opener.current?.isConnected ? opener.current : title))?.focus({ preventScroll: true });
@@ -418,8 +422,12 @@ export function LibraryPage(): ReactElement {
           onClose={() => setMenu(null)}
           onPick={(d) => {
             lastRow.current = menu.id;
+            // the row gone with the action (deleted, merged away): the next row's ⋯, the previous one's if it was the last
+            const ids = [...document.querySelectorAll<HTMLElement>("button[data-row-actions]")].map((b) => b.dataset.rowActions ?? "");
+            const at = ids.indexOf(menu.id);
+            rowNeighbours.current = at < 0 ? [] : [ids[at + 1], ids[at - 1]].filter((id): id is string => Boolean(id));
             opener.current = null;
-            // the row gone with the action (deleted, merged away): the table's title, never an older dialog's section
+            // no row left at all: the table's title, never an older dialog's section
             openerSection.current = listSection.current;
             setMenu(null);
             // once the menu has given the focus back to the row: the dialog then takes it, and gives it back on close
