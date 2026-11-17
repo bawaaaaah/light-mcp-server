@@ -49,6 +49,8 @@ class Channel {
       if (!this.closed) setTimeout(() => void this.open(), 2000);
       return;
     }
+    // closed while the ticket was on its way (a sign-out, a role change): no socket left behind
+    if (this.closed) return;
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${scheme}://${location.host}/api/ws?ticket=${encodeURIComponent(ticket)}`, `light.${this.channel}.v1.${this.codec}`);
     ws.binaryType = "arraybuffer";
