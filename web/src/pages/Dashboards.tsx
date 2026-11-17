@@ -14,6 +14,7 @@ import { usePositions } from "../hooks/usePositions";
 import type { FixtureFunctions } from "../fader-functions";
 import { LiveStagePanel } from "../components/LiveStagePanel";
 import { AdvancedEditors } from "../components/AdvancedEditors";
+import { RereadButton } from "../components/RereadButton";
 import { putInSet, WidgetMenu, type ExclusiveSet, type TargetLists, type TargetReadStates } from "../components/WidgetMenu";
 import type { LookDraft } from "../components/LookEditor";
 import type { KnowledgeIntentions } from "../intentions";
@@ -494,6 +495,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   /** The alert has the focus (its « Relire »): once the lists are read it goes, and the focus stays in the bar. */
   const alertFocused = useRef(false);
   const alertShown = alert.length > 0;
+  /** A read of a list the alert names is under way: its « Relire » waits for it. */
+  const alertBusy = alert.some((line) => line.lists.some((l) => readStates[l]?.reading));
   useEffect(() => {
     if (alertShown || !alertFocused.current) return;
     alertFocused.current = false;
@@ -627,15 +630,14 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
               <span>{t.readFailedHow}</span>
             </span>
             {/* every role reads the lists again here: the menus and the edit mode are not everyone's */}
-            <button onClick={refresh}>{t.readAgain}</button>
+            <RereadButton busy={alertBusy} failing={alertShown} onRetry={refresh} />
             <button
               className="ghost"
               aria-label={t.close}
               title={t.close}
               onClick={() => {
                 // the focus stays in the bar, on its current tab, rather than falling to the page
-                alertFocused.current = false;
-                focusBar();
+                focusBar(); // leaving the alert, the focus resets `alertFocused` (its blur)
                 setReadStates((s) => dismissed(s, alert.flatMap((line) => line.lists)));
               }}
             >

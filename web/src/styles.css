@@ -109,6 +109,13 @@ h2 {
 .read-why button {
   min-width: 44px;
   min-height: 44px;
+  flex: none;
+  white-space: nowrap;
+  color: var(--text);
+}
+/* « Relire » pressed and failed again: said beside it (components/RereadButton.tsx) */
+.reread-still:empty {
+  display: none;
 }
 /* one line per message */
 .read-error-lines {

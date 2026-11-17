@@ -6,6 +6,7 @@ import { actionOf, build, newMapping, type Action, type MappingDraft } from "./M
 import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
+import { RereadButton } from "./RereadButton";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
 import { targetListOf, type ButtonMode, type TargetList, type Widget, type WidgetKind } from "../dashboard-layout";
 import type { Texts } from "../i18n";
@@ -163,19 +164,14 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, ne
     <small className="read-why">
       <span id={whyId}>{why}</span>
       {onRetry && (
-        <button
-          type="button"
-          aria-disabled={busy}
+        <RereadButton
+          busy={busy}
+          failing
+          onRetry={onRetry}
           onFocus={() => (againFocused.current = true)}
           // the focus moved elsewhere; not when the window lost it (another app): the button keeps it there
           onBlur={(e) => document.activeElement !== e.currentTarget && (againFocused.current = false)}
-          onClick={() => {
-            if (busy) return;
-            onRetry();
-          }}
-        >
-          {t.readAgain}
-        </button>
+        />
       )}
     </small>
   );

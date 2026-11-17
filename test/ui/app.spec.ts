@@ -1647,9 +1647,166 @@ test("dashboards: a volunteer reads the failed lists again from the alert itself
     await read; // read again
     await expect(alert).toHaveCount(0);
     // the alert gone, its focus stays in the bar
-    await expect(page.locator(".dashboards .bar .tab.active, .dashboards .bar button").first()).toBeFocused();
+    await expect(page.locator(".dashboards .bar .tab.active")).toBeFocused();
   } finally {
     await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+/**
+ * A volunteer on the Live with its groups failing, the alert's « Relire » focused. `fail(false)` lets the reads pass,
+ * `hold()` keeps the next ones on the wire until the function it gives back lets them go; `reads()` counts them.
+ */
+async function alertRelire(page: Page) {
+  let failing = true;
+  let held: Promise<void> | null = null;
+  let reads = 0;
+  await page.route("**/api/plugins/light/commands/group.list", async (route) => {
+    reads++;
+    if (held) await held;
+    if (failing) return route.fulfill({ status: 500, json: { ok: false, error: "groupes illisibles pour le test" } });
+    await route.continue();
+  });
+  await login(page, "5678");
+  const alert = page.locator(".dashboards .bar .read-error");
+  await expect(alert).toHaveCount(1);
+  const again = alert.getByRole("button", { name: "Relire" });
+  await expect(again).toHaveAttribute("aria-busy", "false");
+  await again.focus();
+  return {
+    alert,
+    again,
+    tab: page.locator(".dashboards .bar .tab.active"),
+    reads: () => reads,
+    fail: (on: boolean) => void (failing = on),
+    hold: () => {
+      let open!: () => void;
+      held = new Promise<void>((r) => (open = r));
+      return () => ((held = null), open());
+    },
+    done: () => page.unroute("**/api/plugins/light/commands/group.list"),
+  };
+}
+
+test("dashboards: the alert's « Relire » is busy while it reads, ignores a second press, and says a renewed failure", async ({ page }) => {
+  const errors = watchErrors(page);
+  const a = await alertRelire(page);
+  const letGo = a.hold();
+  try {
+    await page.keyboard.press("Enter");
+    await expect(a.again).toHaveAttribute("aria-busy", "true");
+    await expect(a.again).toHaveAttribute("aria-disabled", "true");
+    await expect.poll(a.reads).toBeGreaterThanOrEqual(1);
+    const during = a.reads();
+    await page.keyboard.press("Enter"); // pressed again while it reads: nothing more
+    await page.waitForTimeout(300);
+    expect(a.reads()).toBe(during);
+    await expect(a.again).toBeFocused();
+    letGo(); // it fails again (and its retry)
+    await expect(a.again).toHaveAttribute("aria-busy", "false");
+    const still = a.alert.locator(".reread-still");
+    await expect(still).toHaveAttribute("aria-live", "polite");
+    await expect(still).toHaveText(/^Relu à \d\d:\d\d:\d\d, toujours illisible\.$/);
+    await expect(a.again).toBeFocused();
+  } finally {
+    letGo();
+    await a.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: the alert's focus left for the page is not brought back to the bar once the lists are read", async ({ page }) => {
+  const errors = watchErrors(page);
+  const a = await alertRelire(page);
+  a.fail(false);
+  const letGo = a.hold();
+  try {
+    await page.keyboard.press("Enter");
+    await expect(a.again).toHaveAttribute("aria-busy", "true");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur()); // the focus leaves the alert
+    letGo();
+    await expect(a.alert).toHaveCount(0);
+    await page.waitForTimeout(100);
+    await expect(a.tab).not.toBeFocused();
+  } finally {
+    letGo();
+    await a.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: the alert keeps its focus through the window's blur, and gives it to the bar once the lists are read", async ({ page }) => {
+  const errors = watchErrors(page);
+  const a = await alertRelire(page);
+  a.fail(false);
+  const letGo = a.hold();
+  try {
+    await page.keyboard.press("Enter");
+    await expect(a.again).toHaveAttribute("aria-busy", "true");
+    await a.again.dispatchEvent("focusout", { bubbles: true, relatedTarget: null }); // another app took the window
+    letGo();
+    await expect(a.alert).toHaveCount(0);
+    await expect(a.tab).toBeFocused();
+  } finally {
+    letGo();
+    await a.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: the alert and its « Relire » fit a phone, in French and in English", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/plugins/light/commands/group.list", (route) => route.fulfill({ status: 500, json: { ok: false, error: "server away" } }));
+  /** How many lines a button's label takes. */
+  const lines = (button: Locator) =>
+    button.evaluate((b) => {
+      const range = document.createRange();
+      range.selectNodeContents(b);
+      return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size;
+    });
+  try {
+    await login(page, "5678");
+    const alert = page.locator(".dashboards .bar .read-error");
+    await expect(alert.locator(".read-error-lines > span")).toHaveText(["Groupes illisibles : server away.", "« Relire » les redemande au serveur."]);
+    expect(await lines(alert.getByRole("button", { name: "Relire" }))).toBe(1);
+    await page.evaluate(() => localStorage.setItem("lang", "en"));
+    await page.reload();
+    await expect(alert.locator(".read-error-lines > span")).toHaveText(["Groups could not be read: server away.", "“Read again” asks the server for them again."]);
+    expect(await lines(alert.getByRole("button", { name: "Read again" }))).toBe(1);
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("lang"));
+    await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: « Relire » in the edit panel that reads an empty list gives the focus to the label", async ({ page }) => {
+  const errors = watchErrors(page);
+  let answer: "fail" | "empty" = "fail";
+  await page.route("**/api/plugins/light/commands/snapshot.list", (route) =>
+    answer === "fail" ? route.fulfill({ status: 500, json: { ok: false, error: "instantanés illisibles pour le test" } }) : route.fulfill({ json: { ok: true, result: [] } }),
+  );
+  try {
+    await login(page);
+    await api(page, "dashboard.put", { dashboard: { id: "t54-empty-panel", name: "Panneau vide", columns: 12, widgets: [{ id: "s", kind: "snapshot", x: 0, y: 0, w: 2, h: 1 }] } });
+    await page.reload();
+    await page.locator(".dashboards .bar .tab", { hasText: "Panneau vide" }).click();
+    await page.getByRole("button", { name: "✎" }).click();
+    await page.locator('.dgrid .cell[data-widget="s"]').click();
+    const panel = page.locator("section.editor:not(.many)");
+    const again = panel.locator(".read-why").getByRole("button", { name: "Relire" });
+    await expect(again).toHaveAttribute("aria-disabled", "false");
+    answer = "empty";
+    await again.focus();
+    await page.keyboard.press("Enter");
+    await expect(panel.locator(".read-why")).toHaveCount(0);
+    await expect(panel.getByLabel("Libellé")).toBeFocused();
+    await page.getByRole("button", { name: "✕", exact: true }).first().click(); // out of edit mode, unsaved
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/snapshot.list");
+    await api(page, "dashboard.delete", { id: "t54-empty-panel" });
   }
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
