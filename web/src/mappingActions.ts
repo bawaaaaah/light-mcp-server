@@ -70,11 +70,14 @@ export function withInputType(m: MappingDraft, type: MidiType, action: Action, k
 /**
  * How a wheel drives a level (decision of 2026-11-17): « upper », its upper half (centre = 0 %, top = 100 %, the lower half
  * does nothing), by default; « full », its whole travel (bottom = 0 %, centre = 50 %, top = 100 %). Stored as the scale's
- * raw start (`scale.inMin`, 64 or 0, on the top 7 bits).
+ * raw start (`scale.inMin`, 64 or 0, on the top 7 bits); any other start, written by hand, is « custom » and left as it is.
  */
-export type WheelRange = "upper" | "full";
-export const wheelRangeOf = (m: MappingDraft): WheelRange => ((m.scale?.inMin ?? 0) >= PITCHBEND_REST ? "upper" : "full");
-export const withWheelRange = (m: MappingDraft, range: WheelRange): MappingDraft => ({ ...m, scale: { ...m.scale, inMin: range === "upper" ? PITCHBEND_REST : 0 } });
+export type WheelRange = "upper" | "full" | "custom";
+export function wheelRangeOf(m: MappingDraft): WheelRange {
+  const inMin = m.scale?.inMin ?? 0;
+  return inMin === PITCHBEND_REST ? "upper" : inMin === 0 ? "full" : "custom";
+}
+export const withWheelRange = (m: MappingDraft, range: WheelRange): MappingDraft => (range === "custom" ? m : { ...m, scale: { ...m.scale, inMin: range === "upper" ? PITCHBEND_REST : 0 } });
 
 /** Actions offered; the editor builds the on/off commands and the level argument from them. */
 export const ACTIONS = ["look", "dca", "grandmaster", "fader", "flash", "section", "program", "snapshot", "song.next", "song.prev", "setlist.next", "setlist.prev", "look.stopall", "tempo.tap", "panic", "blackout", "freeze", "position", "colour"] as const;

@@ -4,8 +4,8 @@ import { PITCHBEND_REST, bendThreshold, build, keptOf, newMapping, wheelRangeOf,
 
 /**
  * A pitch bend in the mapping editor (docs/specs/midi.md, « Pitch bend »): the channel's wheel, played like a CC on its
- * top 7 bits. Choosing it gives the wheel's rest as a button's threshold (0 for a level), no LED feedback, never
- * « toggle »; leaving it gives back the number, threshold and feedback it took; a flash from it keeps the mode chosen.
+ * top 7 bits. Choosing it gives the wheel's rest as a button's threshold (0 for a level) and no LED feedback, its mode
+ * kept (a toggle switches once per push); leaving it gives back what it took; a flash from it keeps the mode chosen.
  */
 describe("pitch bend mappings, as the editor builds them", () => {
   it("choosing pitch bend: number 0, threshold at the wheel's rest, no feedback; back to a note, all it took returns", () => {
@@ -42,6 +42,10 @@ describe("pitch bend mappings, as the editor builds them", () => {
     expect(withWheelRange(bend, "upper").scale?.inMin).to.equal(PITCHBEND_REST);
     expect(wheelRangeOf(withWheelRange(bend, "upper"))).to.equal("upper");
     expect(wheelRangeOf(withWheelRange(bend, "full"))).to.equal("full");
+    // a start written by hand is « custom », never rewritten
+    const custom = { ...bend, scale: { inMin: 32 } };
+    expect(wheelRangeOf(custom)).to.equal("custom");
+    expect(withWheelRange(custom, "custom")).to.equal(custom);
     const note = { ...newMapping(), scale: { inMin: 0, inMax: 127 } };
     const upper = withWheelRange(withInputType(note, "pitchbend", "dca"), "upper");
     expect(withInputType(upper, "note", "dca", keptOf(note)).scale).to.deep.equal({ inMin: 0, inMax: 127 });

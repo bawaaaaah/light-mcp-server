@@ -6659,6 +6659,12 @@ test("MIDI mapping: choosing pitch bend offers the wheel's rest as threshold, no
   await expect(editor.getByRole("combobox", { name: "Course de la molette" })).toHaveValue("upper");
   await editor.getByRole("combobox", { name: "Action" }).selectOption("look");
   await expect(editor.getByLabel("Seuil")).toHaveValue("64");
+  // a button's own threshold survives a trip through a level action
+  await editor.getByLabel("Seuil").fill("100");
+  await editor.getByRole("combobox", { name: "Action" }).selectOption("dca");
+  await expect(editor.getByLabel("Seuil")).toHaveValue("0");
+  await editor.getByRole("combobox", { name: "Action" }).selectOption("look");
+  await expect(editor.getByLabel("Seuil")).toHaveValue("100");
   await editor.getByRole("combobox", { name: "Retour" }).selectOption("cc"); // a feedback chosen anyway: its number shows
   await expect(editor.getByLabel("N° du retour")).toHaveValue("0");
   await editor.getByRole("combobox", { name: "Retour" }).selectOption("none");
@@ -6715,6 +6721,44 @@ test("MIDI mapping: a wheel to a DCA, its upper half by default, then its whole 
   } finally {
     const m = await saved();
     if (m) await api(page, "midi.mapping.delete", { id: m.id });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("MIDI mapping: an older wheel to a level, its scale written by hand, keeps it and loses its jump at the centre", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const group = ((await api(page, "group.list")) as { id: string }[])[0]!.id;
+  await api(page, "midi.mapping.put", { mapping: { id: "ui-old-bend", label: "Vieille molette", input: { type: "pitchbend", channel: 7, number: 0 }, threshold: 64, scale: { inMin: 32 }, on: { command: "group.level", args: { id: group } }, levelArg: "level", feedback: "none" } });
+  try {
+    await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+    await page.getByRole("button", { name: "Modifier Vieille molette" }).click();
+    const editor = page.locator(".mapping-editor");
+    const range = editor.getByRole("combobox", { name: "Course de la molette" });
+    await expect(range).toHaveValue("custom");
+    await expect(range.locator("option:checked")).toHaveText("Personnalisée (départ 32)");
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    const saved = ((await api(page, "midi.mapping.list")) as { id: string; threshold: number; scale: { inMin: number } }[]).find((m) => m.id === "ui-old-bend");
+    expect(saved).toMatchObject({ threshold: 0, scale: { inMin: 32 } });
+  } finally {
+    await api(page, "midi.mapping.delete", { id: "ui-old-bend" });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("MIDI page: a wheel's action when its input goes, released or kept by kind of input", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  const web = page.getByRole("combobox", { name: "Web MIDI du navigateur" });
+  try {
+    await expect(web).toHaveValue("release"); // by default
+    await expect(page.getByRole("group", { name: /Entrée perdue/ })).toHaveAccessibleDescription(/Un changement de profil relâche toujours/);
+    await web.selectOption("keep");
+    await expect.poll(async () => ((await api(page, "midi.status")) as { portLoss: { web: string; local: string } }).portLoss).toEqual({ local: "release", rtp: "release", web: "keep" });
+  } finally {
+    await api(page, "midi.portloss.set", { web: "release" });
   }
   expect(errors).toEqual([]);
 });

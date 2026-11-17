@@ -10,6 +10,7 @@ import { slug, uniqueId } from "../util";
 import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, bendThreshold, build, isLevelAction, wheelRangeOf, withWheelRange, type WheelRange, actionOf, colourGroupOf, keptOf, newMapping, withInputType, type Action, type KeptInput, type LearntInput, type MappingDraft, type MidiType } from "../mappingActions";
 import { useColourPresets } from "../hooks/useColourPresets";
 import { EditorActions } from "./EditorActions";
+import { fill } from "../intentions";
 
 export { actionOf, build, newMapping, type Action, type LearntInput, type MappingDraft } from "../mappingActions";
 
@@ -47,6 +48,8 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const bendHintId = useId();
   const rangeHintId = useId();
   /** A wheel to a level: its upper half by default; a mapping saved that way (or by hand) reads back as it plays. */
+  /** A wheel's button threshold, kept while a level action (threshold 0) is chosen. */
+  const [buttonThreshold, setButtonThreshold] = useState<number | undefined>(undefined);
   const [range, setRange] = useState<WheelRange>(() => (initial.input.type === "pitchbend" && initial.levelArg ? wheelRangeOf(initial) : "upper"));
 
   useEffect(() => {
@@ -81,7 +84,8 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
     if (targets.length && !target && action !== "freeze") return setError(t.targetRequired);
     const label = m.label || targets.find((x) => x.id === target)?.name || t.mappingActions[action];
     const built = build({ ...m, label }, action, target, colourGroup);
-    const full = bend && isLevelAction(action) ? withWheelRange(built, range) : built;
+    // a wheel to a level follows the whole wheel from 0: a threshold (an older mapping's 64) would jump at the centre
+    const full = bend && isLevelAction(action) ? { ...withWheelRange(built, range), threshold: 0 } : built;
     const id = initial.id || uniqueId(slug(`${m.input.type}-${m.input.number}-${label}`, "mapping"), existing);
     void cmd("midi.mapping.put", { mapping: { ...full, id } })
       .then(onClose)
@@ -98,7 +102,10 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   /** Another action: a wheel's threshold follows it (a button above the rest, a level from 0). */
   const chooseAction = (next: Action) => {
     setAction({ action: next, target: "" });
-    if (bend) setM({ ...m, threshold: bendThreshold(m.threshold, next) });
+    if (!bend) return;
+    // a button's threshold put aside while a level (from 0) is chosen, and given back with a button again
+    if (!isLevelAction(action) && isLevelAction(next)) setButtonThreshold(m.threshold);
+    setM({ ...m, threshold: bendThreshold(isLevelAction(action) ? buttonThreshold : m.threshold, next) });
   };
   // a level action plays its own way, a CC included (its value is the level: a toggle would flicker);
   // a flash too, except from a CC, where a button may still toggle or hold it
@@ -217,9 +224,10 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           {bend && isLevelAction(action) && (
             <label className="field wide">
               <span>{t.wheelRange}</span>
-              <select aria-label={t.wheelRange} aria-describedby={rangeHintId} value={range} onChange={(e) => setRange(e.target.value as WheelRange)}>
+              <select aria-describedby={rangeHintId} value={range} onChange={(e) => setRange(e.target.value as WheelRange)}>
                 <option value="upper">{t.wheelRanges.upper}</option>
                 <option value="full">{t.wheelRanges.full}</option>
+                {range === "custom" && <option value="custom">{fill(t.wheelRanges.custom, { n: m.scale?.inMin ?? 0 })}</option>}
               </select>
             </label>
           )}

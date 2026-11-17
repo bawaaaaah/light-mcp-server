@@ -22,7 +22,11 @@ interface Status {
   profile: string;
   profiles: string[];
   profileConfig?: { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: { enabled: boolean; port: number; name: string; advertise?: boolean; connect?: string[] } };
+  /** What a wheel holding an action does when its input goes, by kind of input (commands/midi-commands.ts PortLossSchema). */
+  portLoss?: Record<PortKind, "release" | "keep">;
 }
+type PortKind = "local" | "rtp" | "web";
+const PORT_KINDS: readonly PortKind[] = ["local", "rtp", "web"];
 /** A mapping as midi.mapping.list gives it: the stored mapping, every default filled in (midi/mapping.ts MappingSchema). */
 type Mapping = MappingDraft;
 /** An input heard by midi.learn. */
@@ -168,6 +172,9 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
       return;
     }
     let access: MIDIAccess | undefined;
+    /** The inputs relayed: one gone is said to the server, which releases what its wheels held (midi.web.closed). */
+    let relayed: string[] = [];
+    const closed = (names: string[]) => names.forEach((name) => void cmd("midi.web.closed", { port: `Web MIDI · ${name}` }).catch(() => undefined));
     const bind = () => {
       if (!access) return;
       const names: string[] = [];
@@ -179,6 +186,8 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
           void cmd("midi.in", { port: `Web MIDI · ${input.name ?? input.id}`, bytes: Array.from(data).slice(0, 3) }).catch(() => undefined);
         };
       });
+      closed(relayed.filter((n) => !names.includes(n)));
+      relayed = names;
       setInputs(names);
     };
     void nav
@@ -192,6 +201,7 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
     return () => {
       access?.inputs.forEach((input) => (input.onmidimessage = null));
       if (access) access.onstatechange = null;
+      closed(relayed); // relayed no more (Web MIDI off, the page left)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `t` only words the error: a language change must not close and reopen the MIDI access
   }, [enabled]);
@@ -374,6 +384,31 @@ export function MidiPage(): ReactElement {
               {status.rtp.enabled && <option value="rtp">RTP-MIDI</option>}
             </select>
           </label>
+        )}
+        {/* a wheel holding an action when its input goes: released (by default) or kept, by kind of input */}
+        {status?.portLoss && (
+          <fieldset className="row" aria-describedby="midi-port-loss-help">
+            <legend>{t.portLoss.title}</legend>
+            {PORT_KINDS.map((kind) => (
+              <label key={kind}>
+                {t.portLoss.kinds[kind]}{" "}
+                <select
+                  value={status.portLoss![kind]}
+                  onChange={(e) =>
+                    void cmd("midi.portloss.set", { [kind]: e.target.value })
+                      .then(() => cmd<Status>("midi.status").then(setStatus))
+                      .catch((err: Error) => setError(err.message))
+                  }
+                >
+                  <option value="release">{t.portLoss.release}</option>
+                  <option value="keep">{t.portLoss.keep}</option>
+                </select>
+              </label>
+            ))}
+            <small className="hint" id="midi-port-loss-help">
+              {t.portLoss.help}
+            </small>
+          </fieldset>
         )}
         {error && (
           <span className="error" onClick={() => setError("")}>
