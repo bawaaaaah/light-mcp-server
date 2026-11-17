@@ -22,6 +22,13 @@ describe("folder store", () => {
     expect(slugify("Éternel")).to.equal("eternel");
   });
 
+  it("keeps one schema per collection name: the same one reopens it, another is refused", () => {
+    const store = new FolderStore(dirs().root);
+    const palettes = store.collection("palettes", Palette);
+    expect(store.collection("palettes", Palette)).to.equal(palettes);
+    expect(() => store.collection("palettes", z.object({ id: z.string() }).passthrough())).to.throw(/palettes reopened with another schema/);
+  });
+
   it("writes one file per object and reloads it", () => {
     const { root } = dirs();
     const s1 = new FolderStore(root);

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { LightPlugin } from "../../../src/plugins/light/light-plugin.js";
 import { systemContext, type CommandError } from "../../../src/plugins/light/commands/registry.js";
-import { LookSchema } from "../../../src/plugins/light/show/model.js";
+import { IntentionSchema } from "../../../src/plugins/light/knowledge/intentions.js";
 
 /**
  * T6: venue.fixture.mode (a fixture's DMX mode, its references carried over by channel name, one proposal
@@ -275,7 +275,7 @@ describe("fixture modes: DMX mode and a channel's working mode (T6)", () => {
     expect(plugin.runtime.looks.get("prog")!.name).to.equal("Programme bis");
     expect(plugin.runtime.faders.get("dim")!.name).to.equal("Gradateur bis");
     // the show's own intentions (the collection the proposal wrote)
-    const intentions = plugin.runtime.store.collection("intentions", LookSchema.pick({ id: true }).passthrough());
+    const intentions = plugin.runtime.store.collection("intentions", IntentionSchema);
     expect(intentions.get("rideau-essai")).to.not.equal(undefined);
   });
 

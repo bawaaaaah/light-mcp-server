@@ -71,7 +71,8 @@ export class Collection<T extends { id: string }> {
   constructor(
     private readonly store: FolderStore,
     readonly name: string,
-    private readonly schema: ZodType<T, unknown>,
+    /** Its schema, given at its first opening (FolderStore.collection). */
+    readonly schema: ZodType<T, unknown>,
   ) {
     this.reload();
   }
@@ -232,7 +233,11 @@ export class FolderStore {
 
   collection<T extends { id: string }>(name: string, schema: ZodType<T, unknown>): Collection<T> {
     const existing = this.collections.get(name);
-    if (existing) return existing as Collection<T>; // opened with its first schema: the caller's T is trusted (one schema per collection name)
+    if (existing) {
+      // one schema per collection name: the same schema object, so its T is the caller's
+      if (existing.schema !== schema) throw new Error(`collection ${name} reopened with another schema than its first one`);
+      return existing as Collection<T>;
+    }
     const c = new Collection<T>(this, name, schema);
     this.collections.set(name, c);
     return c;
