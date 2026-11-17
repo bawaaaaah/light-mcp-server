@@ -11,7 +11,7 @@ import { quoted } from "../typography";
 import { useColourPresets } from "../hooks/useColourPresets";
 import { describeMonitor, type MonitorEntry } from "../midi-monitor";
 import { relayOver } from "../web-midi-relay";
-import { MidiCoalescer } from "../midi-coalesce";
+import { MidiBatcher } from "../midi-coalesce";
 
 interface Status {
   localAvailable: boolean;
@@ -178,8 +178,9 @@ const keepWebMidi = (on: boolean): void => {
 /** Held by the one tab of this browser that relays its Web MIDI: the others wait for it (the same devices, twice). */
 const WEB_MIDI_LOCK = "light-web-midi-relay";
 /**
- * Web MIDI: a controller plugged into this browser's device relays its messages to the server, over the live control
- * connection (`relayOver`). One tab per browser relays (a Web Lock): another waits, and says so.
+ * Web MIDI: the controllers plugged into this browser's device relay their messages to the server, over the live control
+ * connection (`relayOver`), every input of the page in one batch per 15 ms window (`MidiBatcher`). One tab per browser
+ * relays (a Web Lock): another waits, and says so.
  */
 /** The hub's channel as `useSyncExternalStore` reads it: one subscription for every render. */
 const subscribeLink = (fn: () => void) => control.onStatus(fn);
@@ -217,22 +218,17 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waitin
     };
     /** The inputs relayed: one gone is said to the server, which releases what its wheels held (midi.web.closed). */
     let relayed: string[] = [];
-    /** Per input, a sustained flow (CC, wheel, aftertouch) sent by last value, every 15 ms at most. */
-    const coalescers = new Map<string, MidiCoalescer>();
-    const coalescer = (name: string) => {
-      let c = coalescers.get(name);
-      if (!c) {
-        const send = (bytes: number[]) => relayOver(control, "midi.in", { port: webMidiPort(name), bytes }, { ...outcome, dropped: () => c!.dropped(bytes) });
-        coalescers.set(name, (c = new MidiCoalescer(send, (fn, ms) => setTimeout(fn, ms), (h) => clearTimeout(h as ReturnType<typeof setTimeout>))));
-      }
-      return c;
+    /** The whole page's inputs in one request per 15 ms window (midi-coalesce.ts); a batch dropped (429) is given back to it. */
+    const batcher = new MidiBatcher(
+      (batch, done) => relayOver(control, "midi.in", batch, { ...outcome, dropped: done.dropped }),
+      (fn, ms) => setTimeout(fn, ms),
+      (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    );
+    const closed = (names: string[]) => {
+      if (!names.length) return;
+      batcher.flush(); // what waits goes first, a rest included: never lost behind the input's « closed »
+      for (const name of names) relayOver(control, "midi.web.closed", { port: webMidiPort(name) }, outcome);
     };
-    const closed = (names: string[]) =>
-      names.forEach((name) => {
-        coalescers.get(name)?.flush(); // its last values first: a rest is never lost
-        coalescers.delete(name);
-        relayOver(control, "midi.web.closed", { port: webMidiPort(name) }, outcome);
-      });
     const bind = () => {
       if (!access) return;
       const names: string[] = [];
@@ -243,7 +239,7 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waitin
         input.onmidimessage = (e) => {
           const data = e.data;
           if (!data || data.length === 0 || data[0] === 0xf8 || data[0] === 0xfe) return; // clock/active sensing stay local
-          coalescer(name).push(Array.from(data).slice(0, 3));
+          batcher.push(webMidiPort(name), Array.from(data).slice(0, 3));
         };
       });
       closed(relayed.filter((n) => !names.includes(n)));

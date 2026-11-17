@@ -1,155 +1,186 @@
 /**
- * What a browser relays of a sustained MIDI flow (docs/specs/midi.md, « Web MIDI »): a CC, a wheel or an aftertouch sends
- * hundreds of values a second, which would spend the live connection's rate. Per control (its status, channel and number):
- * - a value with no window open goes **at once**, and opens a window of `everyMs`;
- * - within the window, the values are kept: at its end go the **extreme** of the window (the value farthest from the last
- *   sent: a push and its release inside one window, 127 then 0, or a wheel's 64, 100, 64, keep their crossing of any
- *   threshold) then the **last** one, each only if it differs from what went before; then a new window, while it moves.
- * Notes, program changes and the transport (Start, Continue, Song Position) go at once, in order, after what was pending.
- * Every send spends a token of a rate kept under the server's (300 a second, 300 ahead: the server allows 400 and 800):
- * with none left, a control's values wait for the next window, the last one first, and are never lost. A value the server
- * dropped (`dropped`, its 429) is sent again once, if nothing newer went. Pure of the browser: the clock is given.
+ * What a page relays of its Web MIDI inputs (docs/specs/midi.md, « Web MIDI »): **one request per window of 15 ms for the
+ * whole page**, every input together (at most ~67 a second, whatever the number of controls), carrying all that changed:
+ * - notes, program changes and the transport (Start, Continue, Song Position): every one, in the order they came;
+ * - per continuous control that moved (a CC, a wheel, an aftertouch: its input, status, channel and number): every value
+ *   where it turned within the window (its successive extremes, which a window's minimum and maximum alone would not all
+ *   be: 64 → 100 → 30 → 100 → 64 turns three times), in the order they came, then its last value — so no crossing of any
+ *   threshold is lost, whatever the turns the control made. A value equal to the one before it is not repeated.
+ * The first message of a gesture goes at once, opening the window; a note goes at once too, with what waits. A batch the
+ * server dropped (its 429) is sent again once, marked as such, merged with what came since (per control, the most recent
+ * value only: never an older one after a newer), and a resend is never sent again: if it is dropped too, only the last
+ * values go at the next window. Pure of the browser: the clock is given.
  */
+
+/** One MIDI message of an input. */
+export interface RelayedMessage {
+  port: string;
+  bytes: number[];
+}
+/** What one request carries. */
+export interface RelayBatch {
+  messages: RelayedMessage[];
+  /** Sent again after the server dropped it (its 429): never sent a third time. */
+  resend?: true;
+}
 
 /** The message types sent by window: CC, pitch bend, channel and poly aftertouch. */
 const continuous = (status: number): boolean => {
   const kind = status & 0xf0;
   return kind === 0xb0 || kind === 0xe0 || kind === 0xd0 || kind === 0xa0;
 };
-/** One control: its status byte (type and channel), and its number for a CC or a poly aftertouch. */
-const controlOf = (bytes: readonly number[]): string => {
-  const kind = bytes[0]! & 0xf0;
-  return kind === 0xb0 || kind === 0xa0 ? `${bytes[0]}:${bytes[1]}` : `${bytes[0]}`;
+/** One control: its input, its status byte (type and channel), and its number for a CC or a poly aftertouch. */
+const controlOf = (m: RelayedMessage): string => {
+  const kind = m.bytes[0]! & 0xf0;
+  return kind === 0xb0 || kind === 0xa0 ? `${m.port}\u0000${m.bytes[0]}:${m.bytes[1]}` : `${m.port}\u0000${m.bytes[0]}`;
 };
 /** A control's value: a pitch bend's 14 bits, a channel aftertouch's pressure, a CC's or a poly aftertouch's value. */
 const valueOf = (bytes: readonly number[]): number => {
   const kind = bytes[0]! & 0xf0;
   return kind === 0xe0 ? ((bytes[2] ?? 0) << 7) | (bytes[1] ?? 0) : kind === 0xd0 ? (bytes[1] ?? 0) : (bytes[2] ?? 0);
 };
-const same = (a: readonly number[] | undefined, b: readonly number[]): boolean => a !== undefined && a.length === b.length && a.every((x, i) => x === b[i]);
 
-/** The rate the page keeps under the server's lossy route (400 a second, 800 ahead). */
-const RATE_PER_SECOND = 300;
-const BURST = 300;
-
+/** A message with the order it came in (to keep every control's own order, and the page's, in a batch). */
+interface Arrived {
+  seq: number;
+  message: RelayedMessage;
+  /** Waiting again because its resend was dropped too: if dropped once more, given up (no loop). */
+  retry?: true;
+}
 interface Control {
-  /** The window open (its timer), if any. */
-  timer: unknown;
-  /** What went last for this control. */
-  sent: number[] | undefined;
-  /** The window's extreme and last values, not sent yet. */
-  peak: number[] | undefined;
-  last: number[] | undefined;
-  /** Sent again even if equal to what went (the server dropped it). */
-  force: boolean;
+  /** The value that went last, and the order it came in. */
+  sent: number | undefined;
+  sentSeq: number;
+  /** This window's turns (where the control changed direction) and its last value, not sent yet. */
+  turns: Arrived[];
+  last: Arrived | undefined;
+  /** The direction it moves in within the window (-1, 0 before its first move, 1). */
+  dir: number;
 }
 
-export class MidiCoalescer {
+export class MidiBatcher {
   private readonly controls = new Map<string, Control>();
-  private tokens = BURST;
-  private refilledAt: number;
+  /** Notes, program changes, transport: waiting for the batch they go in (only while a window is being built). */
+  private discrete: Arrived[] = [];
+  private seq = 0;
+  private timer: unknown;
+  /** Batches sent so far: a resend of an older one never carries its notes after a newer batch went. */
+  private batches = 0;
 
   constructor(
-    private readonly send: (bytes: number[]) => void,
+    private readonly send: (batch: RelayBatch, done: { dropped: () => void }) => void,
     private readonly later: (fn: () => void, ms: number) => unknown,
     private readonly cancel: (handle: unknown) => void,
     private readonly everyMs = 15,
-    private readonly now: () => number = () => Date.now(),
-  ) {
-    this.refilledAt = this.now();
-  }
+  ) {}
 
-  /** A message received from the device. */
-  push(bytes: number[]): void {
+  /** A message received from one of the page's inputs. */
+  push(port: string, bytes: number[]): void {
     if (!bytes.length) return;
+    const arrived: Arrived = { seq: ++this.seq, message: { port, bytes } };
     if (!continuous(bytes[0]!)) {
-      this.flush(false); // what moved before it goes first: the order is kept
-      this.send(bytes);
+      // a note: at once, with what waits; the window goes on for the controls
+      this.discrete.push(arrived);
+      this.emit(false);
+      this.open();
       return;
     }
-    const key = controlOf(bytes);
+    const key = controlOf(arrived.message);
     let c = this.controls.get(key);
-    if (!c) this.controls.set(key, (c = { timer: undefined, sent: undefined, peak: undefined, last: undefined, force: false }));
-    if (c.timer === undefined && c.last === undefined && this.take()) {
-      // no window open: at once, and a window for what follows
-      c.sent = bytes;
-      this.send(bytes);
-      this.open(key, c);
-      return;
-    }
-    // within the window: its extreme (farthest from what went) and its last value
-    const from = c.sent ? valueOf(c.sent) : valueOf(bytes);
-    if (!c.peak || Math.abs(valueOf(bytes) - from) > Math.abs(valueOf(c.peak) - from)) c.peak = bytes;
-    c.last = bytes;
-    if (c.timer === undefined) this.open(key, c);
-  }
-
-  /** The server dropped `bytes` (its 429): sent again once, at the next window, if nothing newer went for its control. */
-  dropped(bytes: number[]): void {
-    if (!bytes.length || !continuous(bytes[0]!)) return;
-    const key = controlOf(bytes);
-    const c = this.controls.get(key);
-    if (!c || !same(c.sent, bytes) || c.last !== undefined) return;
-    c.last = bytes;
-    c.force = true;
-    if (c.timer === undefined) this.open(key, c);
-  }
-
-  /**
-   * Sends what is pending now, ahead of a message that must follow it (`closing` false: the windows go on), or because the
-   * input goes (`closing`: every window closed). The last value of each control always goes, whatever the rate.
-   */
-  flush(closing = true): void {
-    for (const [key, c] of this.controls) {
-      this.release(c, true);
-      if (closing) {
-        if (c.timer !== undefined) this.cancel(c.timer);
-        this.controls.delete(key);
-      }
+    if (!c) this.controls.set(key, (c = { sent: undefined, sentSeq: 0, turns: [], last: undefined, dir: 0 }));
+    const v = valueOf(bytes);
+    const before = c.last ? valueOf(c.last.message.bytes) : c.sent;
+    const dir = before === undefined ? 0 : Math.sign(v - before);
+    if (before !== undefined && dir === 0) return; // the same value again: nothing new
+    // it turned: the value before is one of its extremes, kept (a control never sent yet: its first value too)
+    if (c.last && dir !== c.dir) c.turns.push(c.last);
+    c.dir = dir;
+    c.last = arrived;
+    if (this.timer === undefined) {
+      // the first message of a gesture: at once, opening the window
+      this.emit(false);
+      this.open();
     }
   }
 
-  private open(key: string, c: Control): void {
-    c.timer = this.later(() => {
-      c.timer = undefined;
-      // something went, or waits for a token: a new window while it moves; else the control is at rest
-      if (this.release(c, false) || c.last !== undefined) this.open(key, c);
+  /** Sends what waits now and closes the window (an input going, the relay stopping): its last values never lost. */
+  flush(): void {
+    if (this.timer !== undefined) this.cancel(this.timer);
+    this.timer = undefined;
+    this.emit(false);
+  }
+
+  private open(): void {
+    if (this.timer !== undefined) return;
+    this.timer = this.later(() => {
+      this.timer = undefined;
+      // something went: a new window while it moves; else the page is at rest until its next message
+      if (this.emit(false)) this.open();
     }, this.everyMs);
   }
 
-  /** Sends a window's extreme then its last value (what differs from what went); true if anything went. */
-  private release(c: Control, always: boolean): boolean {
-    const last = c.last;
-    if (!last) return false;
-    const peak = c.peak;
-    let went = false;
-    // the extreme first, when a token is left beside the last value's: a crossing kept
-    if (peak && !same(peak, last) && !same(c.sent, peak) && (always || this.tokens >= 2) && this.take(always)) {
-      c.sent = peak;
-      this.send(peak);
-      went = true;
+  /** What waits, in the order it came: notes all, per control its min and max (when new), then its last. */
+  private take(): Arrived[] {
+    const out: Arrived[] = [...this.discrete];
+    this.discrete = [];
+    for (const c of this.controls.values()) {
+      if (!c.last) continue;
+      // its turns then its last value: never one equal to the one before it (push() skips a repeated value)
+      out.push(...c.turns, c.last);
+      c.sent = valueOf(c.last.message.bytes);
+      c.sentSeq = c.last.seq;
+      c.turns = [];
+      c.last = undefined;
+      c.dir = 0;
     }
-    if (same(c.sent, last) && !c.force) {
-      c.peak = c.last = undefined;
-      return went;
-    }
-    if (!this.take(always)) return went; // no token: it waits for the next window, never lost
-    c.sent = last;
-    c.peak = c.last = undefined;
-    c.force = false;
-    this.send(last);
+    return out.sort((a, b) => a.seq - b.seq);
+  }
+
+  /** Sends one batch of what waits (a resend's `extra` merged in front); true if anything went. */
+  private emit(resend: boolean, extra: Arrived[] = []): boolean {
+    const arrived = [...extra, ...this.take()].sort((a, b) => a.seq - b.seq);
+    if (!arrived.length) return false;
+    // only values whose resend was dropped: a resend itself (dropped again, given up)
+    if (arrived.every((a) => a.retry)) resend = true;
+    const batch: RelayBatch = { messages: arrived.map((a) => a.message), ...(resend ? { resend: true as const } : {}) };
+    const number = ++this.batches;
+    this.send(batch, { dropped: () => this.dropped(arrived, number, resend) });
     return true;
   }
 
-  /** A token of the page's rate; `always`: a value that must go (a flush) goes anyway. */
-  private take(always = false): boolean {
-    const now = this.now();
-    this.tokens = Math.min(BURST, this.tokens + ((now - this.refilledAt) / 1000) * RATE_PER_SECOND);
-    this.refilledAt = now;
-    if (this.tokens >= 1) {
-      this.tokens -= 1;
-      return true;
+  /**
+   * The server dropped a batch (its 429). Sent again once, marked, merged with what came since: per control only its most
+   * recent value (one newer already sent or waiting wins), its notes only if no batch went after it. A resend dropped in
+   * turn is not sent again: only its controls' last values go at the next window, if nothing newer came.
+   */
+  private dropped(arrived: Arrived[], number: number, wasResend: boolean): void {
+    const latest = new Map<string, Arrived>();
+    const notes: Arrived[] = [];
+    for (const a of arrived) {
+      if (!continuous(a.message.bytes[0]!)) notes.push(a);
+      else latest.set(controlOf(a.message), a);
     }
-    return always;
+    const kept: Arrived[] = [];
+    for (const [key, a] of latest) {
+      const c = this.controls.get(key)!;
+      // something newer for it already went (a later batch), or waits (it goes with what follows): this one is stale
+      if (c.sentSeq > a.seq || c.last) continue;
+      if (wasResend) {
+        // the resend dropped too: its last value only, once, at the next window; a value already given that chance, given up
+        if (a.retry) continue;
+        c.last = { ...a, retry: true };
+        c.turns = [];
+        c.dir = 0;
+        c.sent = undefined;
+        continue;
+      }
+      kept.push(a);
+    }
+    if (wasResend) {
+      if (latest.size) this.open();
+      return;
+    }
+    const resent = [...(number === this.batches ? notes : []), ...kept];
+    if (resent.length || [...this.controls.values()].some((c) => c.last)) this.emit(true, resent);
   }
 }

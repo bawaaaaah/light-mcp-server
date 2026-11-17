@@ -6780,20 +6780,24 @@ test("Web MIDI: the first connection never says « paused », even while it is o
   await page.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).uncheck();
 });
 
-test("Web MIDI: a right missing (403) stops the relay, says so once, and lists no input as relayed", async ({ page }) => {
+test("Web MIDI: a right missing (403) stops the relay, says how to resume, and lists no input as relayed", async ({ page }) => {
   const play = await fakeWebMidi(page);
   let reached = 0;
+  // as the real server answers an account without midi:input: 403 on midi.in and on midi.web.closed alike. The first two
+  // messages' answers come late, after the 403 of the third (one accepted, one refused), and the « closed » of the stopped
+  // relay's input later still, once Web MIDI is switched off: none of them may change what is said
   await page.routeWebSocket(/\/api\/ws/, (ws) => {
     const server = ws.connectToServer();
     ws.onMessage((message) => {
       const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string };
+      const answer = (code: number, body: unknown) => ws.send(JSON.stringify({ t: "res", id: msg.id, status: code, body }));
       if (msg.t === "req" && msg.path?.endsWith("/midi.in")) {
         reached++;
-        ws.send(JSON.stringify({ t: "res", id: msg.id, status: 403, body: { error: "droit requis : midi:input" } }));
-      } else if (msg.t === "req" && msg.path?.endsWith("/midi.web.closed")) {
-        // its « closed » refused too: no accepted message comes to clear what is said
-        ws.send(JSON.stringify({ t: "res", id: msg.id, status: 500, body: { error: "refusé pour le test" } }));
-      } else server.send(message);
+        if (reached === 1) setTimeout(() => answer(200, { ok: true }), 400);
+        else if (reached === 2) setTimeout(() => answer(500, { error: "refusé pour le test" }), 400);
+        else answer(403, { error: "droit requis : midi:input" });
+      } else if (msg.t === "req" && msg.path?.endsWith("/midi.web.closed")) setTimeout(() => answer(403, { error: "droit requis : midi:input" }), 1000);
+      else server.send(message);
     });
   });
   await login(page);
@@ -6801,20 +6805,54 @@ test("Web MIDI: a right missing (403) stops the relay, says so once, and lists n
   const relay = page.getByRole("checkbox", { name: /MIDI de ce navigateur/ });
   await relay.check();
   const status = page.locator(".midi .bar span[role=status]").first();
+  const alert = page.locator(".midi .bar [role=alert]");
   await expect(status).toHaveText("Pad");
-  await play([0x90, 40, 100]);
-  await expect(page.locator(".midi .bar [role=alert]")).toHaveText("Relais Web MIDI arrêté : ce compte n'a pas le droit d'envoyer du MIDI (midi:input)");
+  await play([0x90, 40, 100]); // accepted, but late
+  await play([0x80, 40, 0]); // refused, but late
+  await play([0x90, 41, 100]); // refused at once for the right: the relay stops
+  const stopped = "Relais Web MIDI arrêté : ce compte n'a pas le droit d'envoyer du MIDI (midi:input). Une fois le droit donné, décocher puis recocher Web MIDI.";
+  await expect(alert).toHaveText(stopped);
   await expect(status).toHaveText("arrêté");
-  expect(reached).toBe(1);
-  await play([0x80, 40, 0]).catch(() => undefined); // its relay is gone: nothing more sent
-  await page.waitForTimeout(200);
-  expect(reached).toBe(1);
+  await page.waitForTimeout(600); // the late « accepted » and the late refusal came: nothing said changes
+  await expect(alert).toHaveText(stopped);
+  await expect(status).toHaveText("arrêté");
+  expect(reached).toBe(3);
+  await play([0x90, 42, 100]).catch(() => undefined); // its relay is gone: nothing more sent
+  await page.waitForTimeout(100);
+  expect(reached).toBe(3);
   await relay.uncheck();
-  await expect(page.locator(".midi .bar [role=alert]")).toHaveCount(0);
-  await relay.check(); // on again: what was said before is gone (nothing accepted since cleared it), the relay tries again
-  await expect(page.locator(".midi .bar [role=alert]")).toHaveCount(0);
+  await expect(alert).toHaveCount(0);
+  await page.waitForTimeout(600); // the stopped relay's « closed », refused (403), comes now: it must not stop the next one
+  await relay.check(); // on again, as the alert says: tried again, nothing said before
   await expect(status).toHaveText("Pad");
+  await expect(alert).toHaveCount(0);
   await relay.uncheck();
+});
+
+test("Web MIDI: a batch dropped by the server (429) is sent again once, marked as a resend", async ({ page }) => {
+  const play = await fakeWebMidi(page);
+  const bodies: { messages?: { bytes: number[] }[]; resend?: boolean }[] = [];
+  await page.routeWebSocket(/\/api\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string; body?: { messages?: { bytes: number[] }[]; resend?: boolean } };
+      if (msg.t === "req" && msg.path?.endsWith("/midi.in")) {
+        bodies.push(msg.body ?? {});
+        if (bodies.length === 1) return ws.send(JSON.stringify({ t: "res", id: msg.id, status: 429, body: { error: "dropped" } }));
+      }
+      server.send(message);
+    });
+  });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  await page.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).check();
+  await expect(page.locator(".midi .bar span[role=status]").first()).toHaveText("Pad");
+  await play([0x90, 42, 100]);
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies[1]).toEqual({ messages: [{ port: "Web MIDI · Pad", bytes: [0x90, 42, 100] }], resend: true });
+  await page.waitForTimeout(200);
+  expect(bodies).toHaveLength(2); // once
+  await page.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).uncheck();
 });
 
 test("Web MIDI: an input switched off mid-gesture sends its last value first: a rest is never lost", async ({ page }) => {
@@ -6824,11 +6862,12 @@ test("Web MIDI: an input switched off mid-gesture sends its last value first: a 
   await page.routeWebSocket(/\/api\/ws/, (ws) => {
     const server = ws.connectToServer();
     ws.onMessage((message) => {
-      const msg = JSON.parse(String(message)) as { t: string; path?: string; body?: { bytes?: number[] } };
-      if (msg.t === "req" && msg.path?.endsWith("/midi.in") && msg.body?.bytes) {
-        values.push(msg.body.bytes);
-        order.push(`in ${msg.body.bytes.join(",")}`);
-      }
+      const msg = JSON.parse(String(message)) as { t: string; path?: string; body?: { messages?: { bytes: number[] }[] } };
+      if (msg.t === "req" && msg.path?.endsWith("/midi.in"))
+        for (const m of msg.body?.messages ?? []) {
+          values.push(m.bytes);
+          order.push(`in ${m.bytes.join(",")}`);
+        }
       if (msg.t === "req" && msg.path?.endsWith("/midi.web.closed")) order.push("closed");
       server.send(message);
     });

@@ -65,6 +65,11 @@ export interface MidiServices {
   setPortLoss: (next: PortLoss) => Promise<void>;
 }
 
+/** One MIDI message as a browser relays it (status byte first). */
+const MidiBytes = z.array(z.number().int().min(0).max(255)).min(1).max(3);
+/** The most messages one batch carries (a page's 15 ms; far more than a hand plays). */
+const MAX_BATCH = 512;
+
 export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): void {
   const reloadMappings = () => s.mapper.setMappings(s.mappings.list());
 
@@ -332,17 +337,26 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     hints: "",
     changes: [],
     description:
-      "Relays MIDI bytes received by a browser (Web MIDI) into the hub. Sent over the browser's live connection (REST over the WebSocket control channel), what its wheels hold is tied to that connection and let go when it closes; over plain HTTP or MCP, it holds nothing a browser's connection could lose, and releases nothing a browser holds.",
+      "Relays MIDI received by a browser (Web MIDI) into the hub: one message (port, bytes), or a batch (messages, each with its port, applied in order, all of it: what a page sends every 15 ms). Sent over the browser's live connection (REST over the WebSocket control channel), what its wheels hold is tied to that connection and let go when it closes; over plain HTTP or MCP, it holds nothing a browser's connection could lose, and releases nothing a browser holds.",
     right: "midi:input",
-    schema: z.object({
-      port: z.string().default("Web MIDI").describe("The input's name, the same in every browser (« Web MIDI · Pad »)."),
-      bytes: z.array(z.number().int().min(0).max(255)).min(1).max(3).describe("One MIDI message, as received (status byte first)."),
-    }),
-    run: ({ port, bytes }, ctx) => {
+    schema: z
+      .object({
+        port: z.string().default("Web MIDI").describe("The input's name, the same in every browser (« Web MIDI · Pad »); a batch message's default."),
+        bytes: MidiBytes.optional().describe("One MIDI message, as received (status byte first)."),
+        messages: z
+          .array(z.object({ port: z.string().optional(), bytes: MidiBytes }))
+          .min(1)
+          .max(MAX_BATCH)
+          .optional()
+          .describe("A batch: the messages of every input of the page, in the order they came, applied in that order."),
+        resend: z.boolean().optional().describe("Sent again after the server dropped it (its 429): said only, applied as any batch."),
+      })
+      .refine((a) => (a.bytes === undefined) !== (a.messages === undefined), { message: "bytes ou messages, l'un des deux" }),
+    run: ({ port, bytes, messages }, ctx) => {
       // a connection already closed: its inputs were let go, a late message must not hold again
       if (ctx.connection && !s.clientOpen(ctx.connection)) throw new Error(say("connexion fermée : ce relais Web MIDI n'existe plus", "connection closed: this Web MIDI relay is gone"));
-      s.hub.dispatch("web", port, bytes, ctx.connection);
-      return { ok: true };
+      for (const m of messages ?? [{ port, bytes: bytes! }]) s.hub.dispatch("web", m.port ?? port, m.bytes, ctx.connection);
+      return { ok: true, applied: messages?.length ?? 1 };
     },
   });
 

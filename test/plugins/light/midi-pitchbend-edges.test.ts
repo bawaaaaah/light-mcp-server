@@ -294,6 +294,23 @@ describe("pitch bend through the plugin", () => {
     );
   });
 
+  it("applies a batch whole and in order (a page's 15 ms), its messages on their own ports; one message still taken alone", async function () {
+    this.timeout(10_000);
+    const { over, run, active, until } = await wheelPlugin("momentary");
+    // push and rest of the wheel, then a push again, in one batch: in order, so the look ends on
+    const r = (await over("tab-a")("midi.in", { messages: [{ port: "Web MIDI · Pad", bytes: [0xe0, 0, 127] }, { port: "Web MIDI · Pad", bytes: [0xe0, 0, 64] }, { bytes: [0x90, 40, 1] }, { port: "Web MIDI · Pad", bytes: [0xe0, 0, 127] }] })) as { applied: number };
+    expect(r.applied).to.equal(4);
+    expect(await until(true)).to.equal(true);
+    const journal = (await run("midi.journal")) as { port: string; msg: { type: string; value?: number } }[];
+    expect(journal.slice(0, 4).map((e) => `${e.port} ${e.msg.type}`).reverse()).to.deep.equal(["Web MIDI · Pad pitchbend", "Web MIDI · Pad pitchbend", "Web MIDI noteon", "Web MIDI · Pad pitchbend"]);
+    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0xe0, 0, 64] }); // one message, as before
+    expect(await active()).to.equal(true); // plain HTTP releases nothing the tab holds
+    await run("midi.in", { port: "Web MIDI · Pad", bytes: [0xe0, 0, 64], messages: [{ bytes: [0x90, 1, 1] }] }).then(
+      () => expect.fail("both"),
+      (e: Error) => expect(e.message).to.match(/bytes ou messages/),
+    );
+  });
+
   it("remembers the last 256 closed connections: an older one's late message is no longer refused", async function () {
     this.timeout(10_000);
     const { over, plugin } = await wheelPlugin("momentary");

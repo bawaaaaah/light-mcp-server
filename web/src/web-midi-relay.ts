@@ -7,7 +7,7 @@ import type { Channel } from "./ws-channel.js";
 
 const COMMANDS = "/api/plugins/light/commands/";
 
-/** What the page hears of a relayed message's fate. */
+/** What the page hears of a relayed request's fate (a batch of messages, or an input said gone). */
 export interface RelayOutcome {
   /** Accepted: a refusal said before is over. */
   ok: () => void;
@@ -22,7 +22,7 @@ export interface RelayOutcome {
 /** The refusal the server gives a connection already said closed: the only one a new connection cures. */
 const CLOSED = 422;
 const FORBIDDEN = 403;
-/** Dropped by the server past the flow's rate: counted and said there, nothing to do here. */
+/** Dropped by the server past the flow's rate: counted and said there; given to `outcome.dropped` (the batcher sends it again once). */
 const DROPPED = 429;
 
 /**

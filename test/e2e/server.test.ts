@@ -458,35 +458,51 @@ describe("server end to end", function () {
     link.ws.close();
   });
 
-  it("8 faders moving and a wheel back at rest, relayed as the page does: the wheel's action is let go", async function () {
-    this.timeout(20_000);
-    const { MidiCoalescer } = await import("../../web/src/midi-coalesce.js");
+  it("8 faders moving for 10 s and a wheel pushed then let go amid them, relayed as the page does: one batch per window", async function () {
+    this.timeout(30_000);
+    const { MidiBatcher } = await import("../../web/src/midi-coalesce.js");
     const { relayOver } = await import("../../web/src/web-midi-relay.js");
     const token = await login("1234");
     await command(token, "midi.mapping.put", {
       mapping: { id: "faders-bend", input: { type: "pitchbend", channel: 4, number: 0 }, mode: "momentary", threshold: 64, feedback: "none", on: { command: "blackout", args: { on: true } }, off: { command: "blackout", args: { on: false } } },
     });
     const link = await relayLink(token);
-    const outcome = { ok: () => undefined, refused: () => undefined, forbidden: () => undefined };
-    const coalescer: InstanceType<typeof MidiCoalescer> = new MidiCoalescer(
-      (bytes) => relayOver(link.channel, "midi.in", { port: "Web MIDI · Faders", bytes }, { ...outcome, dropped: () => coalescer.dropped(bytes) }),
+    let requests = 0;
+    let refused = 0;
+    const outcome = { ok: () => undefined, refused: () => void refused++, forbidden: () => void refused++ };
+    const batcher = new MidiBatcher(
+      (batch, done) => {
+        requests++;
+        relayOver(link.channel, "midi.in", batch, { ...outcome, dropped: done.dropped });
+      },
       (fn, ms) => setTimeout(fn, ms),
       (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     );
-    coalescer.push([0xe3, 0, 127]); // the wheel pushed
+    const blackoutAt: boolean[] = [];
     const started = Date.now();
-    while (Date.now() - started < 2000) {
-      for (let k = 0; k < 8; k++) coalescer.push([0xb0, 20 + k, (Date.now() + k) % 128]);
-      await new Promise((r) => setTimeout(r, 2));
+    let pushed = false;
+    let released = false;
+    while (Date.now() - started < 10_000) {
+      const t = Date.now() - started;
+      for (let k = 0; k < 8; k++) batcher.push("Web MIDI · Faders", [0xb0, 20 + k, (t + k) % 128]);
+      // the wheel pushed at 3 s and let go at 6 s, both in the middle of the faders' flow
+      if (!pushed && t >= 3000) {
+        batcher.push("Web MIDI · Wheel", [0xe3, 0, 127]);
+        pushed = true;
+      }
+      if (!released && t >= 6000) {
+        blackoutAt.push(running.light.engine.isBlackout()); // held while pushed
+        batcher.push("Web MIDI · Wheel", [0xe3, 0, 64]);
+        released = true;
+      }
+      await new Promise((r) => setTimeout(r, 1));
     }
-    expect(running.light.engine.isBlackout()).to.equal(true); // the push went through the flood
-    coalescer.push([0xe3, 0, 64]); // back at rest, amid the faders
-    for (let i = 0; i < 50; i++) {
-      for (let k = 0; k < 8; k++) coalescer.push([0xb0, 20 + k, i % 128]);
-      await new Promise((r) => setTimeout(r, 2));
-    }
+    batcher.flush();
     for (let i = 0; i < 200 && running.light.engine.isBlackout(); i++) await new Promise((r) => setTimeout(r, 10));
-    expect(running.light.engine.isBlackout()).to.equal(false);
+    expect(blackoutAt).to.deep.equal([true]); // the push went through the flood
+    expect(running.light.engine.isBlackout()).to.equal(false); // and so did the rest
+    expect(requests).to.be.at.most(10_000 / 15 + 20); // one request per window for the whole page, at most
+    expect(refused).to.equal(0);
     expect(link.closedWith()).to.equal(undefined);
     link.ws.close();
     await command(token, "midi.mapping.delete", { id: "faders-bend" });
