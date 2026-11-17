@@ -4,7 +4,7 @@ import { useT } from "../i18n-context";
 import { control } from "../ws";
 import { plain } from "../util";
 import { useTopic } from "../hooks/useTopic";
-import { MappingEditor, newMapping, type MappingDraft } from "../components/MappingEditor";
+import { MappingEditor, newMapping, type LearntInput, type MappingDraft } from "../components/MappingEditor";
 import { Modal } from "../components/Modal";
 import { quoted } from "../typography";
 import { useColourPresets } from "../hooks/useColourPresets";
@@ -24,13 +24,13 @@ interface Status {
 }
 /** A mapping as midi.mapping.list gives it: the stored mapping, every default filled in (midi/mapping.ts MappingSchema). */
 type Mapping = MappingDraft;
-/** An input heard by midi.learn: any MIDI message type, not only those a mapping answers. */
-type HeardInput = { type: string; channel: number; number: number; port?: string };
+/** An input heard by midi.learn. */
+type HeardInput = LearntInput;
 
 /** The mappings a heard input plays — the same rule as the server's mapper (port by substring, the DJ's port only its own). */
 function playedBy(m: Mapping, heard: HeardInput): boolean {
   if (m.input.type !== heard.type || m.input.channel !== heard.channel) return false;
-  if (m.input.type !== "pitchbend" && m.input.number !== heard.number) return false;
+  if (m.input.number !== heard.number) return false; // learn never hears a pitch bend (the server mapper ignores its number)
   if (m.input.port && heard.port && !heard.port.toLowerCase().includes(m.input.port.toLowerCase())) return false;
   return heard.port !== "OS2L" || m.input.port?.toLowerCase() === "os2l";
 }
@@ -465,7 +465,7 @@ export function MidiPage(): ReactElement {
                 <>
                   {" "}
                   <span className="hint">{t.heardUnmapped}</span>{" "}
-                  <button className="ghost" onClick={() => setEditing({ ...newMapping(), input: { type: heard.type as MappingDraft["input"]["type"], channel: heard.channel, number: heard.number, port: heard.port === "OS2L" ? "OS2L" : undefined }, feedback: heard.port === "OS2L" ? "none" : heard.type === "cc" ? "cc" : "note" })}>
+                  <button className="ghost" onClick={() => setEditing({ ...newMapping(), input: { type: heard.type, channel: heard.channel, number: heard.number, port: heard.port === "OS2L" ? "OS2L" : undefined }, feedback: heard.port === "OS2L" ? "none" : heard.type === "cc" ? "cc" : "note" })}>
                     + {t.mapHeard}
                   </button>
                 </>

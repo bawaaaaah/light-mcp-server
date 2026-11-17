@@ -5,6 +5,14 @@
  */
 import { plain } from "./plain.js";
 
+/** What midi.learn answers (commands/midi-commands.ts): a note, a CC or a program change, with the port it came on. */
+export interface LearntInput {
+  type: "note" | "cc" | "programchange";
+  channel: number;
+  number: number;
+  port: string;
+}
+
 export interface MappingDraft {
   id: string;
   label: string;

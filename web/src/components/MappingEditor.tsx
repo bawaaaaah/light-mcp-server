@@ -7,11 +7,11 @@ import { useEffect, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
-import { ACTIONS, NO_PROGRAM, build, actionOf, colourGroupOf, type Action, type MappingDraft } from "../mappingActions";
+import { ACTIONS, NO_PROGRAM, build, actionOf, colourGroupOf, type Action, type LearntInput, type MappingDraft } from "../mappingActions";
 import { useColourPresets } from "../hooks/useColourPresets";
 import { EditorActions } from "./EditorActions";
 
-export { actionOf, build, newMapping, type Action, type MappingDraft } from "../mappingActions";
+export { actionOf, build, newMapping, type Action, type LearntInput, type MappingDraft } from "../mappingActions";
 
 interface Named {
   id: string;
@@ -51,7 +51,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
     action === "look" ? looks : action === "dca" || action === "flash" || action === "freeze" ? groups : action === "fader" ? faders : action === "program" ? [...programs, { id: NO_PROGRAM, name: t.noProgram }] : action === "snapshot" ? snapshots : action === "position" ? positions : action === "colour" ? colours.map((c) => ({ id: c.id, name: `${c.name} (${c.origin === "personal" ? t.colours.originPersonal : t.colours.originShow})` })) : action === "section" ? songs.flatMap((s) => (s.sections ?? []).map((x) => ({ id: `${s.id}/${x.id}`, name: `${s.title ?? s.name} · ${x.name}` }))) : [];
   const learn = () => {
     setLearning(true);
-    void cmd<{ input: MappingDraft["input"] }>("midi.learn", { timeoutMs: 15000 })
+    void cmd<{ input: LearntInput }>("midi.learn", { timeoutMs: 15000 })
       // learnt from any controller; a DJ's command (OS2L) keeps its port: only it plays that mapping, no LED to light
       .then((r) => setM({ ...m, input: { ...r.input, port: r.input.port === "OS2L" ? "OS2L" : undefined }, feedback: r.input.port === "OS2L" ? "none" : r.input.type === "cc" ? "cc" : m.feedback }))
       .catch((e: Error) => setError(e.message))

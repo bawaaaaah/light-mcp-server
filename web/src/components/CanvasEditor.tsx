@@ -80,7 +80,7 @@ type Rect = { left: number; top: number; width: number; height: number };
 
 const refusalOf = (e: unknown): Refusal | undefined => {
   if (!(e instanceof ApiError) || !e.detail?.impact) return undefined;
-  // the server's refusal detail is untyped on the wire: canvas.put's impact (commands/canvas-commands) gives these fields
+  // the refusal detail is untyped on the wire: refuseUnlessPassed (commands/canvas-commands.ts: edit, put, restore) gives these fields
   const d = e.detail as Partial<Refusal> & { impact: Impact };
   const broken = d.broken ?? [];
   // only a look still broken is offered to adapt: one the attempt already adapted is not asked again
