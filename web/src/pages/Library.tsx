@@ -156,22 +156,30 @@ export function LibraryPage(): ReactElement {
     openerSection.current = el.closest("section");
     setDialog(d);
   };
+  /** Bumped when a dialog closed, once the lists it changed are drawn again: the effect below gives the keyboard back. */
+  const [focusBack, setFocusBack] = useState(0);
   const closeDialog = () => {
     setDialog(null);
-    // after the dialog's own clean-up: the row's ⋯ or the button that opened it (still there), else nothing to do
-    requestAnimationFrame(() => {
-      const row = lastRow.current ? document.querySelector<HTMLElement>(`button[data-row-actions="${CSS.escape(lastRow.current)}"]`) : null;
-      // the button gone with what it acted on (a restored entry, an alias removed, the trash emptied): its section's title
-      const title = openerSection.current?.isConnected ? openerSection.current.querySelector<HTMLElement>("h2") : null;
-      (row ?? (opener.current?.isConnected ? opener.current : title))?.focus({ preventScroll: true });
-    });
+    setFocusBack((n) => n + 1);
   };
-  /** After an action: the message (a toast, in view wherever the action was), the lists read again, the dialog closed. */
+  /** After an action: the message (a toast, in view wherever the action was), the dialog closed, the lists read again. */
   const done = (message: string) => {
-    closeDialog();
+    setDialog(null);
     setNotice(message);
-    void refresh();
+    // the focus once the lists are drawn again: the button the action took away (a restored entry) is gone by then
+    void refresh().then(() => setFocusBack((n) => n + 1));
   };
+  // after the dialog's own clean-up: the row's ⋯ or the button that opened it (still there), else its section's title
+  useEffect(() => {
+    if (!focusBack) return;
+    // the keyboard already went elsewhere while the lists were read again (a busy machine answers late): leave it there
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== opener.current) return;
+    const row = lastRow.current ? document.querySelector<HTMLElement>(`button[data-row-actions="${CSS.escape(lastRow.current)}"]`) : null;
+    // the button gone with what it acted on (a restored entry, an alias removed, the trash emptied): its section's title
+    const title = openerSection.current?.isConnected ? openerSection.current.querySelector<HTMLElement>("h2") : null;
+    (row ?? (opener.current?.isConnected ? opener.current : title))?.focus({ preventScroll: true });
+  }, [focusBack]);
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(""), 8000);
