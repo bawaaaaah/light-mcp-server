@@ -11,6 +11,7 @@ import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, bendThreshold, buil
 import { useColourPresets } from "../hooks/useColourPresets";
 import { EditorActions } from "./EditorActions";
 import { fill } from "../intentions";
+import "../mapping-editor.css";
 
 export { actionOf, build, newMapping, type Action, type LearntInput, type MappingDraft } from "../mappingActions";
 

@@ -52,6 +52,8 @@ export class Channel {
    */
   private generation = 0;
   private readonly statusListeners = new Set<(up: boolean) => void>();
+  /** The id the hub gave this connection in « hello »: what a request relayed for it names (a Web MIDI relay). */
+  connectionId: string | undefined;
 
   constructor(
     private readonly channel: "control" | "stream",
@@ -105,8 +107,9 @@ export class Channel {
     };
     ws.onmessage = (ev) => {
       if (!this.current(gen)) return;
-      const msg = (typeof ev.data === "string" ? JSON.parse(ev.data) : decode(new Uint8Array(ev.data as ArrayBuffer))) as { t: string; id?: number; topic?: string; data?: unknown };
+      const msg = (typeof ev.data === "string" ? JSON.parse(ev.data) : decode(new Uint8Array(ev.data as ArrayBuffer))) as { t: string; id?: number; topic?: string; data?: unknown; connection?: string };
       if (msg.t === "hello") {
+        this.connectionId = msg.connection;
         // subscribed again first, and « up » only once the hub has them: whoever reads again on « up » hears what
         // follows. A read sent on the « sub » alone can reach the hub first (another connection, and a busy hub
         // inflates a compressed frame later), and a change made in between would be neither read nor heard.
@@ -126,6 +129,7 @@ export class Channel {
     };
     ws.onclose = () => {
       pending = null;
+      if (this.current(gen)) this.connectionId = undefined;
       this.deps.cancel(fallback);
       // a socket of an older connection: the current one says its own status and reconnects itself
       if (!this.current(gen)) return;

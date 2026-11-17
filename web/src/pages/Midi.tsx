@@ -9,6 +9,7 @@ import { withInputType, type MidiType } from "../mappingActions";
 import { Modal } from "../components/Modal";
 import { quoted } from "../typography";
 import { useColourPresets } from "../hooks/useColourPresets";
+import { describeMonitor, type MonitorEntry } from "../midi-monitor";
 
 interface Status {
   localAvailable: boolean;
@@ -40,13 +41,6 @@ function playedBy(m: Mapping, heard: HeardInput): boolean {
   return heard.port !== "OS2L" || m.input.port?.toLowerCase() === "os2l";
 }
 
-interface MonitorEntry {
-  port: string;
-  msg: Record<string, unknown>;
-  matched?: { id: string; label: string; mode: string }[];
-  calls: { command: string; target: string; ok: boolean; error?: string }[];
-  ms: number;
-}
 interface RtpSession {
   name: string;
   host: string;
@@ -159,23 +153,8 @@ function RtpPanel({ status, onChange }: { status: Status; onChange: () => void }
   );
 }
 
-/** Web MIDI: a controller plugged into this browser's device relays its messages to the server. */
-/**
- * This browser tab, in its Web MIDI ports' names: two browsers with a « Pad » of the same name stay two inputs (one's
- * wheel at rest never releases the other's push, leaving the page lets go of its own inputs only).
- */
-const WEB_MIDI_TAB = (() => {
-  const made = Math.random().toString(36).slice(2, 6);
-  try {
-    const kept = sessionStorage.getItem("webMidiTab");
-    if (kept) return kept;
-    sessionStorage.setItem("webMidiTab", made);
-  } catch {
-    // no session storage (a private window): a name for this page's life only
-  }
-  return made;
-})();
-const webMidiPort = (name: string) => `Web MIDI · ${name} · ${WEB_MIDI_TAB}`;
+/** A Web MIDI input's name on the server: the same in every browser (what midi.learn gives, one line in the status). */
+const webMidiPort = (name: string) => `Web MIDI · ${name}`;
 
 /** Web MIDI on or off, kept for this browser: the relay stops while the MIDI page is closed and starts again on its return. */
 const WEB_MIDI_KEY = "webMidiOn";
@@ -194,10 +173,19 @@ const keepWebMidi = (on: boolean): void => {
   }
 };
 
-function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
+/** Held by the one tab of this browser that relays its Web MIDI: the others wait for it (the same devices, twice). */
+const WEB_MIDI_LOCK = "light-web-midi-relay";
+
+/**
+ * Web MIDI: a controller plugged into this browser's device relays its messages to the server. Each message names the
+ * live connection relaying it (its id from the hub's « hello »): when it closes (the tab closed, the browser cut from the
+ * network), the server lets go of what its inputs held. One tab per browser relays (a Web Lock): another waits, and says so.
+ */
+function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waiting: boolean } {
   const t = useT();
   const [inputs, setInputs] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [waiting, setWaiting] = useState(false);
   useEffect(() => {
     if (!enabled) return;
     const nav = navigator as Navigator & { requestMIDIAccess?: () => Promise<MIDIAccess> };
@@ -205,10 +193,11 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
       setError(t.webMidiUnavailable);
       return;
     }
+    let stopped = false;
     let access: MIDIAccess | undefined;
     /** The inputs relayed: one gone is said to the server, which releases what its wheels held (midi.web.closed). */
     let relayed: string[] = [];
-    const closed = (names: string[]) => names.forEach((name) => void cmd("midi.web.closed", { port: webMidiPort(name) }).catch(() => undefined));
+    const closed = (names: string[]) => names.forEach((name) => void cmd("midi.web.closed", { port: webMidiPort(name), client: control.connectionId }).catch(() => undefined));
     const bind = () => {
       if (!access) return;
       const names: string[] = [];
@@ -219,29 +208,48 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
         input.onmidimessage = (e) => {
           const data = e.data;
           if (!data || data.length === 0 || data[0] === 0xf8 || data[0] === 0xfe) return; // clock/active sensing stay local
-          void cmd("midi.in", { port: webMidiPort(name), bytes: Array.from(data).slice(0, 3) }).catch(() => undefined);
+          void cmd("midi.in", { port: webMidiPort(name), bytes: Array.from(data).slice(0, 3), client: control.connectionId }).catch(() => undefined);
         };
       });
       closed(relayed.filter((n) => !names.includes(n)));
       relayed = names;
       setInputs(names);
     };
-    void nav
-      .requestMIDIAccess()
-      .then((a) => {
-        access = a;
-        a.onstatechange = bind;
-        bind();
-      })
-      .catch((e: Error) => setError(e.message));
+    /** Relays until the effect ends (Web MIDI off, the page left): its promise holds the lock, if there is one. */
+    let release: () => void = () => undefined;
+    const relay = () =>
+      new Promise<void>((done) => {
+        release = done;
+        if (stopped) return done();
+        setWaiting(false);
+        void nav
+          .requestMIDIAccess!()
+          .then((a) => {
+            if (stopped) return;
+            access = a;
+            a.onstatechange = bind;
+            bind();
+          })
+          .catch((e: Error) => setError(e.message));
+      });
+    const locks = (navigator as Navigator & { locks?: LockManager }).locks;
+    if (locks) {
+      // another tab relaying: this one waits (the lock comes to it when that tab closes or stops)
+      void locks.request(WEB_MIDI_LOCK, { ifAvailable: true }, async (lock) => (lock ? relay() : setWaiting(true))).then(() => {
+        if (!stopped && !access) void locks.request(WEB_MIDI_LOCK, relay);
+      });
+    } else void relay();
     return () => {
+      stopped = true;
+      setWaiting(false);
       access?.inputs.forEach((input) => (input.onmidimessage = null));
       if (access) access.onstatechange = null;
       closed(relayed); // relayed no more (Web MIDI off, the page left)
+      release();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `t` only words the error: a language change must not close and reopen the MIDI access
   }, [enabled]);
-  return { inputs, error };
+  return { inputs, error, waiting };
 }
 
 interface AbleSetStatus {
@@ -330,16 +338,6 @@ export function MidiPage(): ReactElement {
   };
   const web = useWebMidi(webMidi);
   /** A message and what it did: the mappings it matched, each command, and the time it took when long. */
-  const describe = (e: MonitorEntry) => {
-    // a release with no message (an input gone, a profile change, a mapping changed): its cause, and what it let go
-    if (e.msg.type === "release") return `${e.port || "—"} · ${t.releaseCauses[e.msg.cause as keyof typeof t.releaseCauses] ?? String(e.msg.cause)} → ${e.matched?.map((x) => x.label || x.id).join(", ") ?? ""}${t.colon} ${e.calls.map((c) => `${c.command}${c.target ? ` ${c.target}` : ""} ${c.ok ? "✓" : `✗ ${c.error ?? ""}`}`).join(", ") || t.monitorNothing}`;
-    const raw = `${e.port} · ${Object.values(e.msg).join(" ")}`;
-    if (!e.matched?.length) return `${raw} · ${t.monitorUnmapped}`;
-    const who = e.matched.map((x) => `${x.label || x.id} (${t.modesShort[x.mode as keyof typeof t.modesShort] ?? x.mode})`).join(", ");
-    const did = e.calls.length ? e.calls.map((c) => `${c.command}${c.target ? ` ${c.target}` : ""} ${c.ok ? "✓" : `✗ ${c.error ?? ""}`}`).join(", ") : t.monitorNothing;
-    return `${raw} → ${who}${t.colon} ${did}${e.ms >= 20 ? ` · ${Math.round(e.ms)} ms` : ""}`;
-  };
-
   useEffect(() => {
     const load = () => void cmd<Status>("midi.status").then(setStatus).catch(() => undefined);
     load();
@@ -350,7 +348,7 @@ export function MidiPage(): ReactElement {
     }, 2000);
     const off = control.subscribe("light:midi", (d) => {
       const e = d as { monitor?: MonitorEntry; error?: string; warning?: string };
-      const line = e.monitor ? describe(e.monitor) : (e.error ?? e.warning);
+      const line = e.monitor ? describeMonitor(e.monitor, t) : (e.error ?? e.warning);
       if (line) setMonitor((m) => [line, ...m].slice(0, 40));
     });
     return () => {
@@ -383,7 +381,7 @@ export function MidiPage(): ReactElement {
         <label className="row">
           <input type="checkbox" checked={webMidi} onChange={(e) => setWebMidi(e.target.checked)} /> {t.webMidi}
         </label>
-        {webMidi && <span className="hint">{web.error || web.inputs.join(", ") || "—"}</span>}
+        {webMidi && <span className="hint">{web.error || (web.waiting ? t.webMidiWaiting : web.inputs.join(", ") || "—")}</span>}
         {status?.profileConfig && (
           <label>
             {t.feedbackOut}{" "}

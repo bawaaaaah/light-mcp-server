@@ -1,0 +1,9 @@
+/* The MIDI mapping editor's own rules, apart from styles.css (shared, edited elsewhere). */
+
+/* a value shown but not to be typed (a wheel to a level has no threshold): reads as fixed, not as an empty field */
+.mapping-editor input[readonly] {
+  color: var(--muted);
+  background: transparent;
+  border-style: dashed;
+  cursor: default;
+}

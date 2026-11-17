@@ -4805,7 +4805,7 @@ test("a page whose file an update replaced: the tab reloads once and shows it, n
   await expect(page.getByRole("alert")).toContainText("Cette page n'a pas pu se charger");
   await page.waitForTimeout(1500);
   expect(loads).toBe(2); // ours, and the one reload: no loop
-  await page.locator("nav.pages button", { hasText: "Live" }).click(); // the rest still works
+  await page.locator("nav.pages button", { hasText: "Live" }).first().click(); // the rest still works
   await expect(page.locator(".dgrid")).toBeVisible();
 });
 
@@ -6747,6 +6747,42 @@ test("MIDI mapping: an older wheel to a level, its scale written by hand, keeps 
     expect(saved).toMatchObject({ threshold: 0, scale: { inMin: 32 } });
   } finally {
     await api(page, "midi.mapping.delete", { id: "ui-old-bend" });
+  }
+  expect(errors).toEqual([]);
+});
+
+test("Web MIDI: a browser's connection closed lets go of what its wheel held, or keeps it, as the « web » setting says", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await api(page, "look.stopall");
+  await api(page, "midi.mapping.put", { mapping: { id: "ui-ws-bend", label: "Molette WS", input: { type: "pitchbend", channel: 11, number: 0 }, mode: "momentary", threshold: 64, feedback: "none", on: { command: "look.go", args: { id: "hole" } }, off: { command: "look.stop", args: { id: "hole" } } } });
+  const holeOn = async () => ((await api(page, "look.list")) as { id: string; active: boolean }[]).find((l) => l.id === "hole")?.active;
+  /** A connection of its own, as a tab's: its id from « hello », and a push relayed for it. */
+  const push = () =>
+    page.evaluate(async (host) => {
+      const token = sessionStorage.getItem("token");
+      const { ticket } = (await (await fetch("/api/auth/ws-ticket", { method: "POST", headers: { authorization: `Bearer ${token}` } })).json()) as { ticket: string };
+      const ws = new WebSocket(`ws://${host}/api/ws?ticket=${encodeURIComponent(ticket)}`, "light.control.v1.json");
+      const id = await new Promise<string>((ok) => (ws.onmessage = (ev) => ok((JSON.parse(String(ev.data)) as { connection: string }).connection)));
+      (globalThis as unknown as { relay: WebSocket }).relay = ws;
+      await fetch("/api/plugins/light/commands/midi.in", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ port: "Web MIDI · Pad", bytes: [0xea, 0, 127], client: id }) });
+    }, new URL(page.url()).host);
+  const closeTab = () => page.evaluate(() => (globalThis as unknown as { relay: WebSocket }).relay.close());
+  try {
+    await push();
+    await expect.poll(holeOn).toBe(true);
+    await closeTab();
+    await expect.poll(holeOn).toBe(false); // the tab's connection closed: released
+    await api(page, "midi.portloss.set", { web: "keep" });
+    await push();
+    await expect.poll(holeOn).toBe(true);
+    await closeTab();
+    await page.waitForTimeout(500);
+    expect(await holeOn()).toBe(true); // kept
+  } finally {
+    await api(page, "midi.portloss.set", { web: "release" });
+    await api(page, "midi.mapping.delete", { id: "ui-ws-bend" });
+    await api(page, "look.stopall");
   }
   expect(errors).toEqual([]);
 });
