@@ -15,5 +15,5 @@
     "types": ["node", "mocha", "chai"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "prototypes/**/*.ts"],
-  "exclude": ["node_modules", "dist", "web"]
+  "exclude": ["node_modules", "dist", "web", "test/ui"]
 }
