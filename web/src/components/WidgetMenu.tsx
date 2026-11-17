@@ -117,7 +117,6 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, on
    * « Relire » has the focus: once the list is read the button goes with its reason, and the focus it had goes to the
    * picker rather than to the page. Only then: a read that comes while the focus is elsewhere moves nothing.
    */
-  const againRef = useRef<HTMLButtonElement>(null);
   const againFocused = useRef(false);
   const read = targetsOf(kind, lists);
   const list = targetListOf(kind);
@@ -153,7 +152,6 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, on
       <span id={whyId}>{why}</span>
       {onRetry && (
         <button
-          ref={againRef}
           type="button"
           aria-disabled={busy}
           onFocus={() => (againFocused.current = true)}

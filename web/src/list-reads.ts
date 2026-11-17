@@ -93,7 +93,6 @@ export function alertLines(s: ReadStates): { lists: ReadList[]; message: string 
 /** A message ending its sentence once: the server's own may already end with a point. */
 export const sentence = (message: string): string => `${message.replace(/[\s.]+$/, "")}.`;
 
-
 /** The failures of one refresh, said together. */
 export interface FailuresTogether {
   /** `list` failed (twice): said with the others that fail within the wait. */
@@ -125,8 +124,8 @@ export function failuresTogether(say: (failures: [ReadList, string][]) => void, 
       waiting = waiting.filter(([l]) => l !== list);
     },
     cancel() {
-      stop?.();
-      waiting = []; // a failure after this one does not bring the old ones back
+      stop?.(); // only frees the timer: with nothing waiting, it would say nothing
+      waiting = []; // a failure after a cancel does not bring the old ones back
     },
   };
 }

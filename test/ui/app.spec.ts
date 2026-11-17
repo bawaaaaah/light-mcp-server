@@ -1505,57 +1505,20 @@ test("dashboards: two reads failing 50 ms apart are said in one alert, announced
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
 
-test("dashboards: a read from elsewhere steals no focus once « Relire » lost it", async ({ page }) => {
-  const errors = watchErrors(page);
+/**
+ * The Live with its groups failing, then a DCA's menu open on « Relire », its list failed. `fail(false)` lets the reads
+ * pass, `hold()` keeps the next ones on the wire until the function it gives back lets them go.
+ */
+async function relireOpen(page: Page) {
   let failing = true;
+  let held: Promise<void> | null = null;
   await page.route("**/api/plugins/light/commands/group.list", async (route) => {
-    if (failing) return route.fulfill({ status: 500, json: { ok: false, error: "groupes illisibles pour le test" } });
-    await route.continue();
-  });
-  try {
-    await login(page);
-    await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1); // the page's reads failed first
-    failing = false;
-    type Saved = { widgets: { id: string; kind: string; target?: string }[] };
-    const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target);
-    expect(dca, "a DCA widget with its group on the first dashboard").toBeTruthy();
-    failing = true;
-    await page.locator(`.dgrid .cell[data-widget="${dca!.id}"]`).click({ button: "right" });
-    const menu = page.getByRole("dialog", { name: "Réglages du widget" });
-    const picker = menu.getByLabel("Pilote");
-    const again = menu.locator(".read-why").getByRole("button", { name: "Relire" });
-    await expect(again).toHaveAttribute("aria-disabled", "false");
-    await again.focus();
-    await page.keyboard.press("Enter"); // read again, and failed again
-    await expect(picker).toHaveAttribute("aria-busy", "true");
-    await expect(picker).toHaveAttribute("aria-busy", "false");
-    // the user goes on typing a label; the groups come later, from another read
-    const label = menu.getByLabel("Libellé");
-    await label.focus();
-    failing = false;
-    await api(page, "look.stopall"); // a command: the page reads its lists
-    await expect(picker).toBeEnabled();
-    await page.waitForTimeout(100);
-    await expect(label).toBeFocused();
-    await page.keyboard.press("Escape");
-  } finally {
-    await page.unroute("**/api/plugins/light/commands/group.list");
-  }
-  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
-});
-
-/** The Live with its groups failing, a DCA's menu open on « Relire »; `answer()` lets the next read through, held. */
-async function relireHeld(page: Page) {
-  let failing = true;
-  let hold: Promise<void> | null = null;
-  let answer = () => undefined as void;
-  await page.route("**/api/plugins/light/commands/group.list", async (route) => {
-    if (hold) await hold;
+    if (held) await held;
     if (failing) return route.fulfill({ status: 500, json: { ok: false, error: "groupes illisibles pour le test" } });
     await route.continue();
   });
   await login(page);
-  await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1);
+  await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1); // the page's reads failed first
   failing = false;
   type Saved = { widgets: { id: string; kind: string; target?: string }[] };
   const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target);
@@ -1563,17 +1526,73 @@ async function relireHeld(page: Page) {
   failing = true;
   await page.locator(`.dgrid .cell[data-widget="${dca!.id}"]`).click({ button: "right" });
   const menu = page.getByRole("dialog", { name: "Réglages du widget" });
-  const picker = menu.getByLabel("Pilote");
   const again = menu.locator(".read-why").getByRole("button", { name: "Relire" });
   await expect(again).toHaveAttribute("aria-disabled", "false");
-  // the next read will pass, once let go
-  failing = false;
-  hold = new Promise<void>((r) => (answer = r));
-  await again.focus();
-  await page.keyboard.press("Enter");
-  await expect(picker).toHaveAttribute("aria-busy", "true");
-  return { picker, again, answer: () => ((hold = null), answer()), done: () => page.unroute("**/api/plugins/light/commands/group.list") };
+  return {
+    menu,
+    picker: menu.getByLabel("Pilote"),
+    label: menu.getByLabel("Libellé"),
+    again,
+    fail: (on: boolean) => void (failing = on),
+    hold: () => {
+      let open!: () => void;
+      held = new Promise<void>((r) => (open = r));
+      return () => ((held = null), open());
+    },
+    done: () => page.unroute("**/api/plugins/light/commands/group.list"),
+  };
 }
+
+/** `relireOpen`, then « Relire » pressed from the keyboard, its read held: `answer()` lets it through, and read. */
+async function relireHeld(page: Page) {
+  const r = await relireOpen(page);
+  r.fail(false);
+  const answer = r.hold();
+  await r.again.focus();
+  await page.keyboard.press("Enter");
+  await expect(r.picker).toHaveAttribute("aria-busy", "true");
+  return { ...r, answer };
+}
+
+test("dashboards: a read from elsewhere steals no focus once « Relire » lost it", async ({ page }) => {
+  const errors = watchErrors(page);
+  const r = await relireOpen(page);
+  try {
+    await r.again.focus();
+    await page.keyboard.press("Enter"); // read again, and failed again
+    await expect(r.picker).toHaveAttribute("aria-busy", "true");
+    await expect(r.picker).toHaveAttribute("aria-busy", "false");
+    // the user goes on typing a label; the groups come later, from another read
+    await r.label.focus();
+    r.fail(false);
+    await api(page, "look.stopall"); // a command: the page reads its lists
+    await expect(r.picker).toBeEnabled();
+    await page.waitForTimeout(100);
+    await expect(r.label).toBeFocused();
+    await page.keyboard.press("Escape");
+  } finally {
+    await r.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: the focus « Relire » gave the picker is given once: a later read moves it no more", async ({ page }) => {
+  const errors = watchErrors(page);
+  const h = await relireHeld(page);
+  try {
+    h.answer();
+    await expect(h.picker).toBeFocused();
+    await h.label.focus();
+    await api(page, "look.stopall"); // the lists read again
+    await page.waitForTimeout(300);
+    await expect(h.label).toBeFocused();
+    await page.keyboard.press("Escape");
+  } finally {
+    h.answer();
+    await h.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
 
 test("dashboards: « Relire » whose focus left for the page gives none to the picker once read", async ({ page }) => {
   const errors = watchErrors(page);

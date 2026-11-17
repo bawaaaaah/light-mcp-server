@@ -223,6 +223,17 @@ describe("list reads", () => {
       expect(said).to.deep.equal([[["faders", "down"]]]);
     });
 
+    it("says only what fails after a cancel, not what it dropped", () => {
+      const said: [ReadList, string][][] = [];
+      const c = clock();
+      const together = failuresTogether((batch) => said.push(batch), { delayMs: 150, later: c.later });
+      together.fail("looks", "down");
+      together.cancel();
+      together.fail("groups", "down");
+      c.advance(150);
+      expect(said).to.deep.equal([[["groups", "down"]]]);
+    });
+
     it("says nothing once cancelled (the page left)", () => {
       const p = page();
       p.together.fail("looks", "down");
