@@ -72,7 +72,8 @@ export function build(m: MappingDraft, action: Action, target: string, colourGro
     case "grandmaster":
       return { ...base, on: { command: "grandmaster.set", args: {} }, levelArg: "level" };
     case "flash":
-      return { ...base, mode: "momentary", on: { command: "group.flash", args: { id: target, on: true } }, off: { command: "group.flash", args: { id: target, on: false } } };
+      // from a note, held while pressed; a CC or a pitch bend keeps its mode (a button may toggle or hold it, as the mapper plays it)
+      return { ...base, mode: answersEveryValue(m.input.type) ? m.mode : "momentary", on: { command: "group.flash", args: { id: target, on: true } }, off: { command: "group.flash", args: { id: target, on: false } } };
     case "section": {
       const [song, section] = target.split("/");
       return { ...base, on: { command: "song.section.go", args: { song, section } } };
