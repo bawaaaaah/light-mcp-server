@@ -5,9 +5,9 @@
  */
 import { plain } from "./plain.js";
 
-/** What midi.learn answers (commands/midi-commands.ts): a note, a CC or a program change, with the port it came on. */
+/** What midi.learn answers (commands/midi-commands.ts): a note, a CC, a program change or a pitch bend (number 0), with the port it came on. */
 export interface LearntInput {
-  type: "note" | "cc" | "programchange";
+  type: "note" | "cc" | "programchange" | "pitchbend";
   channel: number;
   number: number;
   port: string;

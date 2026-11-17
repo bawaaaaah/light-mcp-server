@@ -241,7 +241,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     title: "Apprendre une entrée MIDI",
     titleEn: "Learn a MIDI input",
     hints: "O",
-    description: "Waits for the next note, CC or program change on the watched inputs and returns it as a mapping input (learn mode).",
+    description: "Waits for the next note, CC, program change or pitch bend on the watched inputs and returns it as a mapping input (learn mode); a pitch bend has no number (0: it is the channel's wheel).",
     right: "midi:configure",
     readOnly: true,
     profiles: ["setup"],
@@ -258,6 +258,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
           if (msg.type === "noteon") input = { type: "note", channel: msg.channel, number: msg.note, port: m.port };
           else if (msg.type === "cc") input = { type: "cc", channel: msg.channel, number: msg.controller, port: m.port };
           else if (msg.type === "programchange") input = { type: "programchange", channel: msg.channel, number: msg.program, port: m.port };
+          // the wheel: the mapper ignores the number, 0 keeps one input key per channel
+          else if (msg.type === "pitchbend") input = { type: "pitchbend", channel: msg.channel, number: 0, port: m.port };
           if (!input) return;
           clearTimeout(timer);
           s.hub.off("message", handler);

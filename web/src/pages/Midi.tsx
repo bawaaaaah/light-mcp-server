@@ -30,7 +30,7 @@ type HeardInput = LearntInput;
 /** The mappings a heard input plays — the same rule as the server's mapper (port by substring, the DJ's port only its own). */
 function playedBy(m: Mapping, heard: HeardInput): boolean {
   if (m.input.type !== heard.type || m.input.channel !== heard.channel) return false;
-  if (m.input.number !== heard.number) return false; // learn never hears a pitch bend (the server mapper ignores its number)
+  if (heard.type !== "pitchbend" && m.input.number !== heard.number) return false; // a pitch bend has no number: the server mapper ignores it
   if (m.input.port && heard.port && !heard.port.toLowerCase().includes(m.input.port.toLowerCase())) return false;
   return heard.port !== "OS2L" || m.input.port?.toLowerCase() === "os2l";
 }
@@ -260,7 +260,7 @@ export function MidiPage(): ReactElement {
       .then((r) => setHeard(r.input), (e: Error) => setError(e.message))
       .finally(() => setListening(false));
   };
-  const heardText = (i: HeardInput) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "programchange" ? "PC" : i.type} ${i.number} · ch${i.channel}${i.port ? ` · ${i.port}` : ""}`);
+  const heardText = (i: HeardInput) => (i.port === "OS2L" ? `DJ (OS2L) n° ${i.number}` : `${i.type === "pitchbend" ? "pitch bend" : `${i.type === "programchange" ? "PC" : i.type} ${i.number}`} · ch${i.channel}${i.port ? ` · ${i.port}` : ""}`);
   /** Watch or stop watching a port in the active profile (patterns match by substring). */
   const saveProfile = (patch: Partial<NonNullable<Status["profileConfig"]>>) => {
     if (!status?.profileConfig) return;
@@ -465,7 +465,7 @@ export function MidiPage(): ReactElement {
                 <>
                   {" "}
                   <span className="hint">{t.heardUnmapped}</span>{" "}
-                  <button className="ghost" onClick={() => setEditing({ ...newMapping(), input: { type: heard.type, channel: heard.channel, number: heard.number, port: heard.port === "OS2L" ? "OS2L" : undefined }, feedback: heard.port === "OS2L" ? "none" : heard.type === "cc" ? "cc" : "note" })}>
+                  <button className="ghost" onClick={() => setEditing({ ...newMapping(), input: { type: heard.type, channel: heard.channel, number: heard.number, port: heard.port === "OS2L" ? "OS2L" : undefined }, feedback: heard.port === "OS2L" || heard.type === "pitchbend" ? "none" : heard.type === "cc" ? "cc" : "note" })}>
                     + {t.mapHeard}
                   </button>
                 </>

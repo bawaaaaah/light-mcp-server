@@ -6629,6 +6629,37 @@ test("MIDI mapping: a pitch bend written by an AI client opens as one and saves 
   expect(errors).toEqual([]);
 });
 
+test("MIDI mapping: a pitch bend learnt fills the editor as one, and the reverse search finds its mapping", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  await page.getByRole("button", { name: "+ Nouveau mapping" }).click();
+  const editor = page.locator(".mapping-editor");
+  await editor.getByRole("button", { name: "Apprendre" }).click();
+  await expect(editor.getByRole("button", { name: /J'écoute/ })).toBeVisible();
+  await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0xe3, 0x00, 0x7f] }); // the wheel moved on channel 4
+  await expect(editor.getByRole("combobox", { name: "Type", exact: true })).toHaveValue("pitchbend");
+  await expect(editor.getByLabel("Canal")).toHaveValue("4");
+  await expect(editor.getByLabel("Note / CC")).toHaveCount(0);
+  await expect(editor.getByRole("combobox", { name: "Retour" })).toHaveValue("none"); // no LED on a wheel
+  await editor.getByLabel("Cible").selectOption("hole");
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  try {
+    const rows = page.locator(".midi table tr");
+    await page.getByRole("button", { name: /Écouter une entrée/ }).click();
+    await expect(page.getByRole("button", { name: /J'écoute/ })).toBeVisible();
+    await api(page, "midi.in", { port: "Web MIDI · test", bytes: [0xe3, 0x10, 0x20] }); // another value: the same wheel
+    await expect(page.locator(".heard")).toContainText("pitch bend · ch4");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText("hole");
+  } finally {
+    const mine = ((await api(page, "midi.mapping.list")) as { id: string; input: { type: string; channel: number } }[]).filter((m) => m.input.type === "pitchbend" && m.input.channel === 4);
+    for (const m of mine) await api(page, "midi.mapping.delete", { id: m.id });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("channel fader: on a dashboard, it drives its channels", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);

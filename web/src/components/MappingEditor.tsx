@@ -52,8 +52,9 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const learn = () => {
     setLearning(true);
     void cmd<{ input: LearntInput }>("midi.learn", { timeoutMs: 15000 })
-      // learnt from any controller; a DJ's command (OS2L) keeps its port: only it plays that mapping, no LED to light
-      .then((r) => setM({ ...m, input: { ...r.input, port: r.input.port === "OS2L" ? "OS2L" : undefined }, feedback: r.input.port === "OS2L" ? "none" : r.input.type === "cc" ? "cc" : m.feedback }))
+      // learnt from any controller; a DJ's command (OS2L) keeps its port: only it plays that mapping, no LED to light (nor
+      // for a pitch bend's wheel)
+      .then((r) => setM({ ...m, input: { ...r.input, port: r.input.port === "OS2L" ? "OS2L" : undefined }, feedback: r.input.port === "OS2L" || r.input.type === "pitchbend" ? "none" : r.input.type === "cc" ? "cc" : m.feedback }))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLearning(false));
   };
