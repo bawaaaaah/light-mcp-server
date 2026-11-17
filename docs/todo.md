@@ -430,8 +430,12 @@ Note : la **priorité entre couches de mouvement** (T25) et le **sous-look parta
   - **Sorties réseau** (Art-Net, sACN, DMX USB et leurs adresses) : proposées à l'export et à l'import, **cochées** par défaut.
   - **Fusion ou remplacement** : un choix proposé à l'import.
   - **Aperçu** : oui, sous forme d'arbre à cocher, à l'export comme à l'import ; cocher ou décocher un parent coche ou décoche ses enfants. Partir des arbres (tree-view) du skill `ui-styling`.
-- **À vérifier en premier** : que l'export complet sait n'emporter qu'une partie cochée (et l'import n'en restaurer qu'une partie), et que l'arbre convient à ce choix.
-- **Reste à préciser** : si les secrets exportés sont chiffrés par un mot de passe.
+  - **Mot de passe des secrets** : proposé, facultatif (on peut exporter les secrets en clair).
+  - **« Remplacer »** ne touche que les catégories cochées ; « Fusionner » est le mode par défaut.
+  - **Conflit en fusion** (show ou lieu de même id, mais différent) : un choix par ligne, « remplacer » par défaut (avec copie de l'existant) ou « importer comme copie » sous un nouvel id.
+  - **Réglages du serveur** (port, adresse, URL publique, sécurité) : proposés, décochés par défaut.
+- **Étude du 2026-11-17** (lecture du code) : la sélection partielle est possible (un objet par fichier JSON), mais l'archive `.lightshow` ne sait ni choisir, ni fusionner, ni emporter la machine : il faut un nouveau format sur la même mécanique zip. L'arbre convient si un show et un lieu restent indivisibles (une case chacun), avec les dépendances cochées d'office (show → lieu, utilisateur → rôle, passkey → utilisateur) ou signalées (définitions, intentions, couleurs). Le skill `ui-styling` n'a pas d'arbre et suppose Tailwind et Radix, que le web n'utilise pas : arbre accessible fait maison (`role="tree"`, `aria-checked="mixed"`, clavier), en partant de `ChannelTree.tsx`. Les jetons OAuth et les sessions ne sont pas transférables. Détail et lots proposés : `docs/plans/T50-export-complet.md` (fichier local, pas suivi par git).
+- **Restent à trancher** (réponses recommandées par l'étude) : les PIN rangés dans les secrets ; fichiers Ableton cochés, workspaces QLC+ décochés ; historique et sauvegardes décochés ; show ouvert gardé sauf s'il est remplacé ; nombre d'univers changé → « redémarrage nécessaire » ; CLI `light install export|import`, aussi serveur arrêté ; nouvelle extension `.lightinstall`.
 
 ## Restes de la revue du 2026-11-11 (T18a, T21, T22, T38, T11)
 
