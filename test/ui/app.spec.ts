@@ -1362,16 +1362,28 @@ test("dashboards: the groups failing to read are said, and read again they make 
   });
   try {
     await login(page);
-    await expect(page.locator(".dashboards .bar .error")).toContainText("groupes illisibles pour le test");
-    type Saved = { widgets: { id: string; kind: string; target?: string }[] };
-    const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target)!;
+    const alert = page.locator(".dashboards .bar .read-error");
+    await expect(alert).toHaveAttribute("role", "alert");
+    await expect(alert).toContainText("Groupes illisibles : groupes illisibles pour le test. Rouvrir le menu d'un widget");
     failing = false;
+    type Saved = { widgets: { id: string; kind: string; target?: string }[] };
+    const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target);
+    expect(dca, "a DCA widget with its group on the first dashboard").toBeTruthy();
     const groups = (await api(page, "group.list")) as { id: string; name: string }[];
-    // the right-click reads the lists again: this time the groups come
-    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+    failing = true;
+    // still failing: the picker is not busy any more, it says why
+    await page.locator(`.dgrid .cell[data-widget="${dca!.id}"]`).click({ button: "right" });
     const picker = page.getByRole("dialog", { name: "Réglages du widget" }).getByLabel("Pilote");
+    await expect(picker).toBeDisabled();
+    await expect(picker).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
+    await expect(picker).toHaveAttribute("title", /Groupes illisibles/);
+    await page.keyboard.press("Escape");
+    failing = false;
+    // the right-click reads the lists again: this time the groups come, and the message goes
+    await page.locator(`.dgrid .cell[data-widget="${dca!.id}"]`).click({ button: "right" });
     await expect(picker).toBeEnabled();
-    await expect(picker).toHaveValue(dca.target!);
+    await expect(alert).toHaveCount(0);
+    await expect(picker).toHaveValue(dca!.target!);
     await expect(picker.locator("option")).toHaveCount(groups.length + 1); // « — » and every group
     await page.keyboard.press("Escape");
   } finally {

@@ -14,7 +14,7 @@ import { usePositions } from "../hooks/usePositions";
 import type { FixtureFunctions } from "../fader-functions";
 import { LiveStagePanel } from "../components/LiveStagePanel";
 import { AdvancedEditors } from "../components/AdvancedEditors";
-import { putInSet, WidgetMenu, type ExclusiveSet, type TargetLists } from "../components/WidgetMenu";
+import { putInSet, WidgetMenu, type ExclusiveSet, type TargetFailures, type TargetLists } from "../components/WidgetMenu";
 import type { LookDraft } from "../components/LookEditor";
 import type { KnowledgeIntentions } from "../intentions";
 import type { GroupDraft } from "../components/GroupEditor";
@@ -27,7 +27,7 @@ import { quoted } from "../typography";
 import { useArm } from "../hooks/useArm";
 import { useKiosk } from "../hooks/useKiosk";
 import { added, clone, colorOf, CORNERS, dragged, dropCell, holdable, settle, SUB, type Dashboard, type Drag, type Handle, type Widget, type WidgetKind } from "../dashboard-layout";
-import { latestRead } from "../list-reads";
+import { dropReads, latestRead, READ_LISTS, type ReadList, type ReadRetry } from "../list-reads";
 import type { ChannelFader, Glide, Group, LightState, Look, Tempo, SongState, WidgetEnv } from "../widgets/env";
 import { WidgetView } from "../widgets/registry";
 import { ManyEditor, WidgetEditor } from "../widgets/WidgetEditor";
@@ -212,25 +212,31 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   /** The lists read at least once: before, a widget's target is not said « introuvable » (the list is only empty). */
   const [listsRead, setListsRead] = useState({ looks: false, groups: false, faders: false, snapshots: false });
   /** The one way a read list is written: kept, and marked read. */
+  /** A list that could not be read (twice), its own message until it is read: not the page's other errors. */
+  const [readErrors, setReadErrors] = useState<Partial<Record<ReadList, { message: string; shown: boolean }>>>({});
   const [applyRead] = useState(() => {
-    const readOnce = (list: keyof typeof listsRead) => setListsRead((r) => (r[list] ? r : { ...r, [list]: true }));
+    const cleared = (list: ReadList) => setReadErrors((r) => (r[list] ? { ...r, [list]: undefined } : r));
+    const readOnce = (list: keyof typeof listsRead) => (setListsRead((r) => (r[list] ? r : { ...r, [list]: true })), cleared(list));
     return {
+      folders: (s: { folders: string[] }) => (setNamedFolders(s.folders ?? []), cleared("folders")),
       looks: (v: Look[]) => (setLooks(v), readOnce("looks")),
       groups: (v: Group[]) => (setGroups(v), readOnce("groups")),
       faders: (v: ChannelFader[]) => (setFaders(v), readOnce("faders")),
       snapshots: (v: { id: string; name: string }[]) => (setSnapshots(v), readOnce("snapshots")),
     };
   });
-  /** A read that fails twice is said, like the dashboards' own (and the list stays as it was). */
-  const [readRetry] = useState(() => ({ onError: (e: Error) => setError(e.message) }));
-  const readGroups = useCallback(() => latestRead(reads.current, "groups", () => cmd<Group[]>("group.list"), applyRead.groups, readRetry), [applyRead, readRetry]);
+  /** A read that fails twice is said, per list (and the list stays as it was). */
+  const [retries] = useState(() => Object.fromEntries(READ_LISTS.map((list) => [list, { onError: (e: Error) => setReadErrors((r) => ({ ...r, [list]: { message: e.message, shown: true } })) }])) as Record<ReadList, ReadRetry>);
+  // the page leaving (a logout, another page): no read applied, retried or said after it
+  useEffect(() => () => dropReads(reads.current), []);
+  const readGroups = useCallback(() => latestRead(reads.current, "groups", () => cmd<Group[]>("group.list"), applyRead.groups, retries.groups), [applyRead, retries]);
   const refresh = useCallback(() => {
-    latestRead(reads.current, "looks", () => cmd<Look[]>("look.list", { brief: true }), applyRead.looks, readRetry);
+    latestRead(reads.current, "looks", () => cmd<Look[]>("look.list", { brief: true }), applyRead.looks, retries.looks);
     readGroups();
-    latestRead(reads.current, "faders", () => cmd<ChannelFader[]>("fader.list"), applyRead.faders, readRetry);
-    latestRead(reads.current, "snapshots", () => cmd<{ id: string; name: string }[]>("snapshot.list"), applyRead.snapshots, readRetry);
-    latestRead(reads.current, "folders", () => cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []), readRetry);
-  }, [applyRead, readGroups, readRetry]);
+    latestRead(reads.current, "faders", () => cmd<ChannelFader[]>("fader.list"), applyRead.faders, retries.faders);
+    latestRead(reads.current, "snapshots", () => cmd<{ id: string; name: string }[]>("snapshot.list"), applyRead.snapshots, retries.snapshots);
+    latestRead(reads.current, "folders", () => cmd<{ folders: string[] }>("show.settings"), applyRead.folders, retries.folders);
+  }, [applyRead, readGroups, retries]);
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
@@ -447,6 +453,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
     targets: targetsLoaded ? targets : null,
     positions: positionsLoaded ? positions : null,
   };
+  const readFailed = (list: ReadList, message: string) => t.readFailed.replace("{list}", () => t.readLists[list]).replace("{message}", () => message);
+  const readFailures: TargetFailures = Object.fromEntries((["looks", "groups", "faders", "snapshots"] as const).flatMap((l) => (readErrors[l] ? [[l, readFailed(l, readErrors[l].message)]] : [])));
   const patchMany = (fn: (w: Widget) => Partial<Widget> | undefined) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (selection.includes(w.id) ? { ...w, ...fn(w) } : w)) }));
   return (
     <div className="dashboards">
@@ -558,6 +566,20 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             {error}
           </span>
         )}
+        {/* the lists that could not be read, each its own message, gone once it is read */}
+        {READ_LISTS.map((list) => {
+          const failure = readErrors[list];
+          return (
+            failure?.shown && (
+              <span key={list} className="error read-error" role="alert">
+                {readFailed(list, failure.message)}
+                <button className="ghost" aria-label={t.close} title={t.close} onClick={() => setReadErrors((r) => ({ ...r, [list]: { ...failure, shown: false } }))}>
+                  ✕
+                </button>
+              </span>
+            )
+          );
+        })}
       </section>
 
       {edit && dash && (
@@ -602,6 +624,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           columns={dash?.columns ?? 12}
           step={step}
           lists={targetLists}
+          failed={readFailures}
           onPatch={(patch) => updateWidget(sel.id, patch)}
           onRemove={() => {
             update((d) => ({ ...d, widgets: d.widgets.filter((w) => w.id !== sel.id) }));
@@ -726,6 +749,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           widget={dash.widgets.find((w) => w.id === menu.id)!}
           at={menu}
           lists={targetLists}
+          failed={readFailures}
           exclusives={editor ? sets : undefined}
           onGroupsChange={refresh}
           onChange={(patch) => persist((d) => ({ ...d, widgets: d.widgets.map((w) => (w.id === menu.id ? { ...w, ...patch } : w)) }))}

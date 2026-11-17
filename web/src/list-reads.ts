@@ -12,6 +12,12 @@ export interface ReadRetry {
   later?: (fn: () => void, ms: number) => void;
 }
 export const RETRY_MS = 1000;
+export const READ_LISTS: ReadList[] = ["looks", "groups", "faders", "snapshots", "folders"];
+
+/** Every read under way is dropped (the page is leaving): nothing is applied, tried again or said after this. */
+export function dropReads(counters: Record<ReadList, number>): void {
+  for (const list of READ_LISTS) counters[list]++;
+}
 
 /**
  * Applies a read's answer only if no newer read of the same list started meanwhile: a late answer must not rewrite

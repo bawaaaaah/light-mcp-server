@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { latestRead, type ReadList, type ReadRetry } from "../web/src/list-reads.js";
+import { dropReads, latestRead, type ReadList, type ReadRetry } from "../web/src/list-reads.js";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const counters = (): Record<ReadList, number> => ({ looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 });
@@ -55,5 +55,47 @@ describe("list reads", () => {
     tick();
     await flush();
     expect([applied, errors, waiting]).to.deep.equal([["new"], [], []]);
+  });
+
+  it("drops a second try overtaken while it waits: a newer read decides", async () => {
+    const c = counters();
+    const { retry, waiting, errors, tick } = retrying();
+    let tries = 0;
+    const applied: string[] = [];
+    latestRead(c, "groups", () => (tries++, Promise.reject(new Error("old"))), (v) => applied.push(v), retry);
+    await flush();
+    expect(waiting).to.have.length(1); // its second try waits
+    latestRead(c, "groups", () => Promise.resolve("new"), (v) => applied.push(v), retry);
+    await flush();
+    tick(); // the old second try comes due: overtaken, it reads nothing
+    await flush();
+    expect([tries, applied, errors]).to.deep.equal([1, ["new"], []]);
+  });
+
+  it("says a rejection that is not an Error", async () => {
+    const c = counters();
+    const { retry, errors, tick } = retrying();
+    latestRead(c, "looks", () => Promise.reject("offline" as unknown as Error), () => undefined, retry);
+    await flush();
+    tick();
+    await flush();
+    expect(errors).to.deep.equal(["offline"]);
+  });
+
+  it("drops every read under way when the page leaves: nothing applied, tried again or said", async () => {
+    const c = counters();
+    const { retry, waiting, errors, tick } = retrying();
+    let tries = 0;
+    const applied: string[] = [];
+    let answer!: (v: string) => void;
+    latestRead(c, "looks", () => new Promise<string>((r) => (answer = r)), (v) => applied.push(v), retry);
+    latestRead(c, "groups", () => (tries++, Promise.reject(new Error("down"))), (v) => applied.push(v), retry);
+    await flush();
+    expect(waiting).to.have.length(1);
+    dropReads(c);
+    answer("late");
+    tick();
+    await flush();
+    expect([applied, tries, errors]).to.deep.equal([[], 1, []]);
   });
 });

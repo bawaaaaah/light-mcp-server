@@ -95,6 +95,8 @@ const inputName = (t: Texts, i: MappingDraft["input"]) => (i.port === "OS2L" ? `
 
 /** The show's lists a widget picks its target from, by `targetListOf`; null until the list is first read. */
 export type TargetLists = Record<TargetList, Named[] | null>;
+/** Why a list could not be read (said by the page), per list. */
+export type TargetFailures = Partial<Record<TargetList, string>>;
 /** What a widget of `kind` picks its target from: none for a kind without a list, null while that list is not read yet. */
 export const targetsOf = (kind: WidgetKind, lists: TargetLists): Named[] | null => {
   const list = targetListOf(kind);
@@ -107,16 +109,19 @@ export const targetsOf = (kind: WidgetKind, lists: TargetLists): Named[] | null 
  * kept, said « introuvable » once its list is read (before that, shown as it is). Hidden when there is nothing to
  * choose and nothing to say.
  */
-export function TargetSelect({ kind, value, lists, field = false, onChange }: { kind: WidgetKind; value: string | undefined; lists: TargetLists; field?: boolean; onChange: (target: string | undefined) => void }): ReactElement | null {
+export function TargetSelect({ kind, value, lists, failed, field = false, onChange }: { kind: WidgetKind; value: string | undefined; lists: TargetLists; failed?: TargetFailures; field?: boolean; onChange: (target: string | undefined) => void }): ReactElement | null {
   const t = useT();
   const read = targetsOf(kind, lists);
+  const list = targetListOf(kind);
+  // its list could not be read: not busy any more, and it says why (it is read again with the menu)
+  const why = list && !read ? failed?.[list] : undefined;
   const options = read ?? [];
-  const missing = Boolean(targetListOf(kind) && value && !options.some((x) => x.id === value));
+  const missing = Boolean(list && value && !options.some((x) => x.id === value));
   if (!options.length && !missing) return null;
   const name = kind === "look" ? t.assignLook : kind === "target" ? t.targets.aimTarget : t.assignTarget;
   const select = (
     // a list not read yet: nothing to choose, and « — » not chosen by mistake while it comes
-    <select aria-label={field ? undefined : name} disabled={!read} aria-busy={!read} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
+    <select aria-label={field ? undefined : name} disabled={!read} aria-busy={!read && !why} title={why} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
       <option value="">{kind === "motion-lock" ? t.motionLock.allHeads : "—"}</option>
       {missing && <option value={value}>{read ? t.targetMissing.replace("{id}", () => value!) : value}</option>}
       {options.map((x) => (
@@ -146,6 +151,7 @@ export function WidgetMenu({
   widget,
   at,
   lists,
+  failed,
   exclusives,
   onGroupsChange,
   onChange,
@@ -157,6 +163,8 @@ export function WidgetMenu({
   at: { x: number; y: number };
   /** The show's looks, groups, faders, snapshots, 3D targets (T24) and named positions (T32): a widget picks its own here. */
   lists: TargetLists;
+  /** The lists that could not be read, and why. */
+  failed?: TargetFailures;
   /** The show's exclusive sets, when this user may change them: a look button's set is chosen here. */
   exclusives?: ExclusiveSet[];
   /** A set changed: the groups to read again. */
@@ -210,7 +218,7 @@ export function WidgetMenu({
       {widget.kind === "look" && widget.target && (
         <LookPeek key={widget.target} id={widget.target} onStage={setWide} />
       )}
-      <TargetSelect field kind={widget.kind} value={widget.target} lists={lists} onChange={(target) => onChange({ target })} />
+      <TargetSelect field kind={widget.kind} value={widget.target} lists={lists} failed={failed} onChange={(target) => onChange({ target })} />
       <label className="field">
         <span>{t.widgetLabel}</span>
         <input value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
