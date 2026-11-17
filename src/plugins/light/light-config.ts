@@ -1,7 +1,8 @@
-/** The light plugin's machine config (core/config-store.ts, scope « light ») and how its wiring reads and writes it. */
+/** The light plugin's machine config (core/config-store.ts, scope « light ») and the one way to change it. */
 import { z } from "zod";
-import { MidiProfileSchema } from "../commands/midi-commands.js";
-import { portPath } from "../output/dmx-usb.js";
+import type { ScopedConfigStore } from "../../core/config-store.js";
+import { MidiProfileSchema } from "./commands/midi-commands.js";
+import { portPath } from "./output/dmx-usb.js";
 
 const RouteSchema = z.object({
   universe: z.number().int().min(1),
@@ -51,11 +52,41 @@ export const LightConfigSchema = z.object({
 export type LightConfig = z.infer<typeof LightConfigSchema>;
 
 /**
- * The plugin's config as a wiring piece sees it: read at the time of use (a show switch or a profile choice changes
- * it), replaced in memory, then kept on disk (`save`, which writes what is in memory then).
+ * One section of the config, as a wiring piece sees it: read at the time of use (a profile choice changes it),
+ * replaced in memory, then kept on disk (`save` writes the whole config as it is in memory then).
  */
-export interface ConfigAccess {
-  get(): LightConfig;
-  put(next: LightConfig): void;
+export interface ConfigSection<K extends keyof LightConfig> {
+  get(): LightConfig[K];
+  put(next: LightConfig[K]): void;
   save(): Promise<void> | undefined;
+}
+
+/** The plugin's config in memory: every change goes through put(), then save() keeps it in the machine config. */
+export class ConfigCell {
+  constructor(
+    private value: LightConfig,
+    /** The machine config store, read at the time of the save (none: in memory only). */
+    private readonly store: () => ScopedConfigStore | undefined,
+  ) {}
+
+  get(): LightConfig {
+    return this.value;
+  }
+
+  put(next: LightConfig): void {
+    this.value = next;
+  }
+
+  save(): Promise<void> | undefined {
+    return this.store()?.set(this.value);
+  }
+
+  /** The access to one section only (midi for the MIDI wiring, os2l and ableset for the external sync). */
+  section<K extends keyof LightConfig>(key: K): ConfigSection<K> {
+    return {
+      get: () => this.value[key],
+      put: (next) => (this.value = { ...this.value, [key]: next }),
+      save: () => this.save(),
+    };
+  }
 }

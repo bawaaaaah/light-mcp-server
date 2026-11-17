@@ -1,8 +1,8 @@
 /** What « Figer les lyres » (T26) holds, as the state, the MIDI feedback and light://live say it. */
 import type { LockLevel } from "../engine/motion.js";
 import { argText } from "../midi/mapping.js";
-import { stricter, type MotionLockState } from "../show/motion-lock.js";
-import type { ShowRuntime } from "../show/runtime.js";
+import { stricter, type MotionLockState } from "./motion-lock.js";
+import type { ShowRuntime } from "./runtime.js";
 import type { Venue } from "../venue/venue.js";
 
 /**

@@ -2,8 +2,9 @@
  * The light plugin: engine + output + command layer, exposed as MCP tools, HTTP routes and live
  * WebSocket topics — all generated from the command registry (docs/architecture.md, principle 2).
  * The constructor wires the pieces in a fixed order (wiring/: MIDI, the knowledge stores, the activity log,
- * the external sync, the live publications, the automatic backup): the order of the command subscriptions
- * and of the registrations is part of the behaviour (tool list, OSC table, who hears a command first).
+ * the external sync, the live publications, the automatic backup). The order that is part of the behaviour is
+ * that of the subscriptions (commands.onCommand: who hears a command first; hub.on; engine.onFrame) and of the
+ * collections opened; the command list is sorted by name (registry.ts), whatever the registration order.
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import express, { type Request, type Response, type Router } from "express";
@@ -58,17 +59,17 @@ import { OutputRouter, type OutputConfig } from "./output/output-router.js";
 import { DmxUsbOutputs, type SerialBinding } from "./output/dmx-usb.js";
 import { LoopDelay } from "../../core/loop-delay.js";
 import { say } from "../../core/lang.js";
-import { LightConfigSchema, type ConfigAccess, type LightConfig } from "./wiring/config.js";
+import { ConfigCell, LightConfigSchema, type LightConfig } from "./light-config.js";
 import { MidiWiring } from "./wiring/midi-wiring.js";
 import { attachSongIntentions, intentionLineLabel, machineRestoreHooks, migrateIntentionWords, openColours, openIntentions, showExtraFiles, showIntentionHooks } from "./wiring/knowledge-wiring.js";
 import { activityFile, restoreActivity, wireActivity, writeActivity } from "./wiring/activity-wiring.js";
 import { ExternalSync } from "./wiring/external-sync.js";
 import { wireLivePublications } from "./wiring/live-publications.js";
 import { AutoBackup } from "./wiring/auto-backup.js";
-import { motionLockSummary, movingHeadsSummary, type MotionLockSummary } from "./wiring/motion-summary.js";
-import { LIGHT_INSTRUCTIONS, registerMcpResources } from "./wiring/mcp-resources.js";
+import { motionLockSummary, movingHeadsSummary, type MotionLockSummary } from "./show/motion-summary.js";
+import { LIGHT_INSTRUCTIONS, registerMcpResources } from "./mcp-resources.js";
 
-export { LightConfigSchema, type LightConfig } from "./wiring/config.js";
+export { LightConfigSchema, type LightConfig } from "./light-config.js";
 export type { MidiJournalEntry } from "./wiring/midi-wiring.js";
 
 export const PLUGIN_ID = "light";
@@ -116,7 +117,11 @@ export class LightPlugin implements McpPlugin {
   readonly loopDelay = new LoopDelay();
   /** Ableton Link, listened to only while it is the tempo source: its tempo, and its beats once measured. */
   readonly link = new LinkListener((bpm, beatAgoMs) => this.tempo.state().source === "link" && this.tempo.follow(bpm, beatAgoMs, "link"));
-  private config: LightConfig;
+  /** The config, changed only through it (put, then save). */
+  private readonly configCell: ConfigCell;
+  private get config(): LightConfig {
+    return this.configCell.get();
+  }
   private started = false;
   private tempoTimer: NodeJS.Timeout | undefined;
   private readonly files: FileServices;
@@ -133,14 +138,9 @@ export class LightPlugin implements McpPlugin {
   resumed: { looks: string[]; blackout: boolean; song?: string; section?: string } | undefined;
 
   constructor(private readonly opts: LightPluginOptions) {
-    this.config = LightConfigSchema.parse(opts.config?.get() ?? {});
-    if (opts.standby !== undefined) this.config = { ...this.config, output: { ...this.config.output, standby: opts.standby } };
-    // the config as the wiring pieces see it: read at the time of use, kept on disk by save()
-    const config: ConfigAccess = {
-      get: () => this.config,
-      put: (next) => (this.config = next),
-      save: () => this.opts.config?.set(this.config),
-    };
+    const parsed = LightConfigSchema.parse(opts.config?.get() ?? {});
+    this.configCell = new ConfigCell(opts.standby === undefined ? parsed : { ...parsed, output: { ...parsed.output, standby: opts.standby } }, () => this.opts.config);
+    const config = this.configCell;
     const publish = (type: string, payload: unknown) => this.publish(type, payload);
 
     // output and engine; every command's outcome first goes to the screens and the MIDI feedback
@@ -160,13 +160,13 @@ export class LightPlugin implements McpPlugin {
       this.engine,
       this.router,
       async (standby) => {
-        this.config = { ...this.config, output: { ...this.config.output, standby } };
-        await this.opts.config?.set(this.config);
+        config.put({ ...this.config, output: { ...this.config.output, standby } });
+        await config.save();
         if (!standby) this.syncMidiFeedback(true); // take the controllers' LEDs back too
       },
       async (routes) => {
-        this.config = { ...this.config, output: { ...this.config.output, routes } };
-        await this.opts.config?.set(this.config);
+        config.put({ ...this.config, output: { ...this.config.output, routes } });
+        await config.save();
       },
     );
 
@@ -204,7 +204,7 @@ export class LightPlugin implements McpPlugin {
     registerTracksCommands(this.commands, this.runtime);
 
     // MIDI: the show's mappings, the hub, the midi.* commands
-    this.midi = new MidiWiring({ commands: this.commands, engine: this.engine, router: this.router, runtime: this.runtime, show: this.show, mapper: this.mapper, tempo: this.tempo, loopDelay: this.loopDelay, config, ...(opts.midiNative === null ? { midiNative: null } : {}), publish, state: () => this.state() });
+    this.midi = new MidiWiring({ commands: this.commands, engine: this.engine, router: this.router, runtime: this.runtime, show: this.show, mapper: this.mapper, tempo: this.tempo, loopDelay: this.loopDelay, config: config.section("midi"), ...(opts.midiNative === null ? { midiNative: null } : {}), publish, state: () => this.state() });
     this.hub = this.midi.hub;
     const mappings = this.midi.mappings;
     registerSelftestCommands(this.commands, this.engine, this.runtime, () => mappings.list(), () => this.tempo.state().bpm);
@@ -268,7 +268,7 @@ export class LightPlugin implements McpPlugin {
 
     // OSC, then the DJ (OS2L), AbleSet and Link
     this.osc = new OscServer(this.config.osc, this.commands, (command, args) => this.commands.invoke(command, args, { origin: "osc", can: () => true }));
-    this.sync = new ExternalSync({ commands: this.commands, runtime: this.runtime, songs, tempo: this.tempo, link: this.link, hub: this.hub, config });
+    this.sync = new ExternalSync({ commands: this.commands, runtime: this.runtime, songs, tempo: this.tempo, link: this.link, hub: this.hub, os2l: config.section("os2l"), ableset: config.section("ableset") });
     this.os2l = this.sync.os2l;
     this.ableset = this.sync.ableset;
 
@@ -328,12 +328,12 @@ export class LightPlugin implements McpPlugin {
     this.engine.setBlackout(false);
     this.show.retarget(showRoot, path.join(this.dataRoot, "backups", "shows", id));
     if (venue !== this.config.venue) this.venue.retarget(path.join(this.dataRoot, "venues", venue), path.join(this.dataRoot, "backups", "venues", venue), this.definitionDirs(venue));
-    this.config = { ...this.config, show: id, venue };
+    this.configCell.put({ ...this.config, show: id, venue });
     if (this.songs) Object.assign(this.songs.state, { setlist: undefined, song: undefined, section: undefined });
     // from the retarget to here, nothing awaits: no frame can write the old show's settings into the new folder
     this.reloadFromDisk();
     this.recallStartup(); // the opened show's own startup snapshot
-    await this.opts.config?.set(this.config);
+    await this.configCell.save();
   }
 
   /**
@@ -479,7 +479,7 @@ export class LightPlugin implements McpPlugin {
 
   async start(): Promise<void> {
     this.migrateIntentionRefs(); // the show's words by name become ids, now and at each load (T15b)
-    if (this.opts.standby !== undefined) await this.opts.config?.set(this.config);
+    if (this.opts.standby !== undefined) await this.configCell.save();
     if (!this.resumeLive()) this.recallStartup(); // a recent crash resume wins over the startup snapshot
     this.loopDelay.start();
     await this.router.start({ discovery: this.config.discovery });
@@ -620,9 +620,9 @@ export class LightPlugin implements McpPlugin {
   async setConfig(config: unknown): Promise<void> {
     const next = LightConfigSchema.parse(config);
     if (next.universes !== this.config.universes) throw new HttpError(409, say("changer le nombre d'univers demande un redémarrage", "changing the number of universes needs a restart"));
-    this.config = next;
+    this.configCell.put(next);
     this.router.setConfig(next.output as OutputConfig);
-    await this.opts.config?.set(next);
+    await this.configCell.save();
   }
 
   registerHttpRoutes(router: Router): void {

@@ -1,14 +1,14 @@
 /** What the light plugin gives an AI client besides its tools (docs/specs/mcp.md): the instructions and the resources. */
 import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { AuthMiddleware } from "../../../core/auth.js";
-import { say } from "../../../core/lang.js";
-import type { CommandRegistry } from "../commands/registry.js";
-import type { DmxEngine } from "../engine/dmx-engine.js";
-import type { OutputRouter } from "../output/output-router.js";
-import type { ShowRuntime } from "../show/runtime.js";
-import type { TempoClock } from "../timing/tempo.js";
-import type { Venue } from "../venue/venue.js";
-import { liveLockLine } from "./motion-summary.js";
+import type { AuthMiddleware } from "../../core/auth.js";
+import { say } from "../../core/lang.js";
+import type { CommandRegistry } from "./commands/registry.js";
+import type { DmxEngine } from "./engine/dmx-engine.js";
+import type { OutputRouter } from "./output/output-router.js";
+import type { ShowRuntime } from "./show/runtime.js";
+import type { TempoClock } from "./timing/tempo.js";
+import type { Venue } from "./venue/venue.js";
+import { liveLockLine } from "./show/motion-summary.js";
 
 /** What a model needs before its first call: safety, cheap reads, safe edits, where to look (docs/specs/mcp.md). */
 export const LIGHT_INSTRUCTIONS = [

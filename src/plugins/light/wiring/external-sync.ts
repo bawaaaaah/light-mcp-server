@@ -15,7 +15,7 @@ import type { ShowRuntime } from "../show/runtime.js";
 import type { TempoClock } from "../timing/tempo.js";
 import { say } from "../../../core/lang.js";
 import { advertise, localHost } from "../../../core/mdns.js";
-import type { ConfigAccess } from "./config.js";
+import type { ConfigSection } from "../light-config.js";
 
 export interface ExternalSyncDeps {
   commands: CommandRegistry;
@@ -24,12 +24,15 @@ export interface ExternalSyncDeps {
   tempo: TempoClock;
   link: LinkListener;
   hub: MidiHub;
-  config: ConfigAccess;
+  /** The DJ server's port, its allow list and its announce. */
+  os2l: ConfigSection<"os2l">;
+  /** Whether AbleSet is followed, and where it runs. */
+  ableset: ConfigSection<"ableset">;
 }
 
 /**
- * Opens the OS2L server and the AbleSet client (not started: start() does), then registers link.status,
- * ableset.status, ableset.jump, ableset.configure, the tempo follower, then os2l.status (in this order).
+ * Opens the OS2L server and the AbleSet client (not started: start() does), then registers the link, ableset and
+ * os2l commands and subscribes the tempo follower (third of the plugin's command subscribers, after the activity log).
  */
 export class ExternalSync {
   readonly os2l: Os2lServer;
@@ -41,9 +44,9 @@ export class ExternalSync {
   private os2lAnnounce: { stop: () => Promise<void> } | undefined;
 
   constructor(private readonly deps: ExternalSyncDeps) {
-    const { commands, config, link, tempo } = deps;
-    this.os2l = new Os2lServer(config.get().os2l, (event) => this.onOs2l(event));
-    this.ableset = new AbleSetClient(config.get().ableset, (song, section) => this.followAbleSet(song, section));
+    const { commands, ableset, link, tempo } = deps;
+    this.os2l = new Os2lServer(deps.os2l.get(), (event) => this.onOs2l(event));
+    this.ableset = new AbleSetClient(ableset.get(), (song, section) => this.followAbleSet(song, section));
     commands.register({
       name: "link.status",
       title: "Ableton Link",
@@ -79,7 +82,7 @@ export class ExternalSync {
       profiles: ["live"],
       schema: z.object({ song: z.string(), section: z.string().optional() }),
       run: ({ song: wanted, section: part }) => {
-        if (!config.get().ableset.enabled) throw new CommandError("failed", say("le suivi d'AbleSet est éteint (page MIDI)", "the AbleSet follower is off (MIDI page)"));
+        if (!ableset.get().enabled) throw new CommandError("failed", say("le suivi d'AbleSet est éteint (page MIDI)", "the AbleSet follower is off (MIDI page)"));
         const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
         const song = deps.songs.songs.list().find((s) => s.id === wanted || same(s.title, wanted));
         if (!song) throw new CommandError("invalid", say(`chant inconnu : ${wanted}`, `unknown song: ${wanted}`));
@@ -100,10 +103,9 @@ export class ExternalSync {
       profiles: ["setup"],
       schema: z.object({ enabled: z.boolean().optional(), host: z.string().min(1).optional(), port: z.number().int().min(1).max(65535).optional() }),
       run: async (patch) => {
-        const current = config.get();
-        config.put({ ...current, ableset: { ...current.ableset, ...patch } });
-        await this.ableset.setConfig(config.get().ableset);
-        await config.save();
+        ableset.put({ ...ableset.get(), ...patch });
+        await this.ableset.setConfig(ableset.get());
+        await ableset.save();
         return this.ableset.status();
       },
     });
@@ -136,10 +138,10 @@ export class ExternalSync {
 
   /** Starts the OS2L server (a taken port is only said) and announces it on the network (mDNS) when asked. */
   async startOs2l(): Promise<void> {
-    const { config } = this.deps;
-    await this.os2l.start().catch((err: Error) => console.warn(`OS2L indisponible sur le port ${config.get().os2l.port} : ${err.message}`));
+    const config = this.deps.os2l;
+    await this.os2l.start().catch((err: Error) => console.warn(`OS2L indisponible sur le port ${config.get().port} : ${err.message}`));
     const os2lPort = this.os2l.port;
-    if (os2lPort && config.get().os2l.advertise) this.os2lAnnounce = await advertise({ instance: "Lumière", type: "_os2l._tcp", port: os2lPort, ...localHost() });
+    if (os2lPort && config.get().advertise) this.os2lAnnounce = await advertise({ instance: "Lumière", type: "_os2l._tcp", port: os2lPort, ...localHost() });
   }
 
   async stopOs2l(): Promise<void> {

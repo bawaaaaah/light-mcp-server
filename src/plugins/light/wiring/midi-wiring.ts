@@ -15,8 +15,8 @@ import type { TempoClock } from "../timing/tempo.js";
 import type { Collection, FolderStore } from "../data/store.js";
 import type { LoopDelay } from "../../../core/loop-delay.js";
 import { say } from "../../../core/lang.js";
-import type { ConfigAccess, LightConfig } from "./config.js";
-import { frozenFor } from "./motion-summary.js";
+import type { ConfigSection, LightConfig } from "../light-config.js";
+import { frozenFor } from "../show/motion-summary.js";
 
 const MIDI_JOURNAL_SIZE = 300;
 
@@ -33,8 +33,8 @@ export interface MidiJournalEntry {
 }
 
 /** The ports of the active MIDI profile, as the hub takes them. */
-export function activeMidiProfile(config: LightConfig): { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: MidiProfile["rtp"] } {
-  const p = config.midi.profiles[config.midi.active] ?? MidiProfileSchema.parse({});
+export function activeMidiProfile(midi: LightConfig["midi"]): { inputs: string[]; feedbackOutput?: string; clockOutput?: string; rtp: MidiProfile["rtp"] } {
+  const p = midi.profiles[midi.active] ?? MidiProfileSchema.parse({});
   return { inputs: p.inputs, feedbackOutput: p.feedbackOutput, clockOutput: p.clockOutput, rtp: p.rtp };
 }
 
@@ -47,7 +47,8 @@ export interface MidiWiringDeps {
   mapper: MidiMapper;
   tempo: TempoClock;
   loopDelay: LoopDelay;
-  config: ConfigAccess;
+  /** The MIDI profiles and the active one. */
+  config: ConfigSection<"midi">;
   /** Test seam: no native MIDI. */
   midiNative?: null;
   publish: (type: string, payload: unknown) => void;
@@ -85,19 +86,19 @@ export class MidiWiring {
       mapper,
       mappings,
       tempo: deps.tempo,
-      profiles: () => config.get().midi.profiles,
-      activeProfile: () => config.get().midi.active,
+      profiles: () => config.get().profiles,
+      activeProfile: () => config.get().active,
       selectProfile: async (name) => {
-        const current = config.get();
-        if (!current.midi.profiles[name]) throw new Error(say(`profil inconnu : ${name}`, `unknown profile: ${name}`));
-        config.put({ ...current, midi: { ...current.midi, active: name } });
+        const midi = config.get();
+        if (!midi.profiles[name]) throw new Error(say(`profil inconnu : ${name}`, `unknown profile: ${name}`));
+        config.put({ ...midi, active: name });
         await hub.setConfig(activeMidiProfile(config.get()));
         await config.save();
       },
       saveProfile: async (name, profile) => {
-        const current = config.get();
-        config.put({ ...current, midi: { ...current.midi, profiles: { ...current.midi.profiles, [name]: profile } } });
-        if (name === config.get().midi.active) await hub.setConfig(activeMidiProfile(config.get()));
+        const midi = config.get();
+        config.put({ ...midi, profiles: { ...midi.profiles, [name]: profile } });
+        if (name === config.get().active) await hub.setConfig(activeMidiProfile(config.get()));
         await config.save();
       },
     });
