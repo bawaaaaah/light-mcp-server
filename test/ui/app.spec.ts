@@ -4105,9 +4105,11 @@ test("AbleSet: followed from the MIDI page, says when it does not answer", async
 test("AbleSet answering: a song is sent there from the Chants page", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
-  // a fake AbleSet on the test server's AbleSet port: its heartbeat to whoever subscribes, and the jumps it gets
+  // a fake AbleSet on a free port the server is pointed to: its heartbeat to whoever subscribes, and the jumps it gets
   const { createSocket } = await import("node:dgram");
   const { decodeOsc, encodeOsc } = await import("../../src/plugins/light/osc/codec.js");
+  // the server's own port, put back afterwards: read before the socket exists, so a failed read leaves nothing open
+  const before = (await api(page, "ableset.status")) as { port: number };
   const ableset = createSocket("udp4");
   const jumps: string[] = [];
   let beat: NodeJS.Timeout | undefined;
@@ -4122,7 +4124,6 @@ test("AbleSet answering: a song is sent there from the Chants page", async ({ pa
   });
   // on a port of its own: another suite running at the same time has its fake AbleSet too
   await new Promise<void>((r) => ableset.bind(0, "127.0.0.1", r));
-  const before = (await api(page, "ableset.status")) as { port: number };
   try {
     await api(page, "ableset.configure", { enabled: true, host: "127.0.0.1", port: ableset.address().port });
     await page.locator("nav.pages button", { hasText: "Chants" }).click();
