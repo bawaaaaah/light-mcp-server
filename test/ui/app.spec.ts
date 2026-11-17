@@ -6651,10 +6651,12 @@ test("MIDI mapping: choosing pitch bend offers the wheel's rest as threshold, no
   await expect(editor.getByLabel("Seuil")).toHaveValue("64");
   await expect(editor.getByRole("combobox", { name: "Retour" })).toHaveValue("none");
   await expect(editor.getByLabel("N° du retour")).toHaveCount(0);
-  await expect(editor.getByRole("combobox", { name: "Mode" }).locator("option", { hasText: "Basculer" })).toHaveCount(0); // a wheel never toggles
-  // a level action follows the whole wheel: from 0; a button again: above the rest
+  await expect(editor.getByRole("combobox", { name: "Mode" }).locator("option", { hasText: "Basculer" })).toHaveCount(1); // once per push
+  await expect(editor.getByRole("combobox", { name: "Course de la molette" })).toHaveCount(0); // a button: no travel to choose
+  // a level action follows the wheel: from 0, its upper half by default; a button again: above the rest
   await editor.getByRole("combobox", { name: "Action" }).selectOption("dca");
   await expect(editor.getByLabel("Seuil")).toHaveValue("0");
+  await expect(editor.getByRole("combobox", { name: "Course de la molette" })).toHaveValue("upper");
   await editor.getByRole("combobox", { name: "Action" }).selectOption("look");
   await expect(editor.getByLabel("Seuil")).toHaveValue("64");
   await editor.getByRole("combobox", { name: "Retour" }).selectOption("cc"); // a feedback chosen anyway: its number shows
@@ -6665,7 +6667,6 @@ test("MIDI mapping: choosing pitch bend offers the wheel's rest as threshold, no
   await expect(editor.getByLabel("Note / CC")).toHaveValue("36");
   await expect(editor.getByLabel("Seuil")).toHaveValue("0");
   await expect(editor.getByRole("combobox", { name: "Retour" })).toHaveValue("note");
-  await expect(editor.getByRole("combobox", { name: "Mode" }).locator("option", { hasText: "Basculer" })).toHaveCount(1);
   // a wheel learnt, then a pad: the pad gets them back too
   await editor.getByRole("button", { name: "Apprendre" }).click();
   await expect(editor.getByRole("button", { name: /J'écoute/ })).toBeVisible();
@@ -6679,6 +6680,42 @@ test("MIDI mapping: choosing pitch bend offers the wheel's rest as threshold, no
   await expect(editor.getByLabel("Seuil")).toHaveValue("0");
   await expect(editor.getByRole("combobox", { name: "Retour" })).toHaveValue("note");
   await editor.getByRole("button", { name: "Fermer" }).click();
+  expect(errors).toEqual([]);
+});
+
+test("MIDI mapping: a wheel to a DCA, its upper half by default, then its whole travel, saved and read back", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  await page.getByRole("button", { name: "+ Nouveau mapping" }).click();
+  const editor = page.locator(".mapping-editor");
+  await editor.getByRole("combobox", { name: "Type", exact: true }).selectOption("pitchbend");
+  await editor.getByLabel("Canal").fill("6");
+  await editor.getByRole("combobox", { name: "Action" }).selectOption("dca");
+  await editor.getByLabel("Cible").selectOption({ index: 1 });
+  const range = editor.getByRole("combobox", { name: "Course de la molette" });
+  await expect(range).toHaveValue("upper");
+  await expect(range).toHaveAccessibleDescription(/le bas de la molette ne fait rien/);
+  await editor.getByLabel("Libellé").fill("Molette DCA");
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  type Saved = { id: string; label: string; input: { type: string }; threshold: number; scale: { inMin: number }; levelArg?: string };
+  const saved = async () => ((await api(page, "midi.mapping.list")) as Saved[]).find((m) => m.label === "Molette DCA");
+  try {
+    expect(await saved()).toMatchObject({ input: { type: "pitchbend" }, threshold: 0, scale: { inMin: 64 }, levelArg: "level" }); // centre = 0 %
+    await page.getByRole("button", { name: "Modifier Molette DCA" }).click();
+    await expect(range).toHaveValue("upper");
+    await range.selectOption("full");
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect(editor).toHaveCount(0);
+    await expect.poll(async () => (await saved())?.scale.inMin).toBe(0); // bottom = 0 %, centre = 50 %
+    await page.getByRole("button", { name: "Modifier Molette DCA" }).click();
+    await expect(range).toHaveValue("full");
+    await editor.getByRole("button", { name: "Fermer" }).click();
+  } finally {
+    const m = await saved();
+    if (m) await api(page, "midi.mapping.delete", { id: m.id });
+  }
   expect(errors).toEqual([]);
 });
 

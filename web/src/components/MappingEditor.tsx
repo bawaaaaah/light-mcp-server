@@ -7,7 +7,7 @@ import { useEffect, useId, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
-import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, bendThreshold, build, actionOf, colourGroupOf, keptOf, newMapping, withInputType, type Action, type KeptInput, type LearntInput, type MappingDraft, type MidiType } from "../mappingActions";
+import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, bendThreshold, build, isLevelAction, wheelRangeOf, withWheelRange, type WheelRange, actionOf, colourGroupOf, keptOf, newMapping, withInputType, type Action, type KeptInput, type LearntInput, type MappingDraft, type MidiType } from "../mappingActions";
 import { useColourPresets } from "../hooks/useColourPresets";
 import { EditorActions } from "./EditorActions";
 
@@ -22,8 +22,7 @@ interface Named {
 
 export function MappingEditor({ initial, existing, onClose }: { initial: MappingDraft; existing: string[]; onClose: () => void }): ReactElement {
   const t = useT();
-  // a pitch bend never plays « toggle » (build plays it « latch »): shown as it will play
-  const [m, setM] = useState<MappingDraft>(() => (initial.input.type === "pitchbend" && initial.mode === "toggle" ? { ...initial, mode: "latch" } : initial));
+  const [m, setM] = useState<MappingDraft>(initial);
   const [{ action, target }, setAction] = useState(actionOf(initial));
   const [looks, setLooks] = useState<Named[]>([]);
   const [groups, setGroups] = useState<Named[]>([]);
@@ -38,7 +37,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const [learning, setLearning] = useState(false);
   const [error, setError] = useState("");
   /** The number, threshold and feedback before a pitch bend was chosen: they come back with another type. */
-  const [kept, setKept] = useState<KeptInput>(() => (initial.input.type === "pitchbend" ? { number: initial.input.number, threshold: 0, feedback: newMapping().feedback } : keptOf(initial)));
+  const [kept, setKept] = useState<KeptInput>(() => (initial.input.type === "pitchbend" ? { number: initial.input.number, threshold: 0, feedback: newMapping().feedback, inMin: 0 } : keptOf(initial)));
   /** What a pitch bend chosen now takes away (from the current draft), or what it took (the draft is one). */
   const keptNow = (): KeptInput => (m.input.type === "pitchbend" ? kept : keptOf(m));
   const setNumber = (number: number) => {
@@ -46,6 +45,9 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
     setKept({ ...kept, number });
   };
   const bendHintId = useId();
+  const rangeHintId = useId();
+  /** A wheel to a level: its upper half by default; a mapping saved that way (or by hand) reads back as it plays. */
+  const [range, setRange] = useState<WheelRange>(() => (initial.input.type === "pitchbend" && initial.levelArg ? wheelRangeOf(initial) : "upper"));
 
   useEffect(() => {
     void cmd<Named[]>("look.list", { brief: true }).then(setLooks);
@@ -78,7 +80,8 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
     // a freeze without a group is every head: its target is optional
     if (targets.length && !target && action !== "freeze") return setError(t.targetRequired);
     const label = m.label || targets.find((x) => x.id === target)?.name || t.mappingActions[action];
-    const full = build({ ...m, label }, action, target, colourGroup);
+    const built = build({ ...m, label }, action, target, colourGroup);
+    const full = bend && isLevelAction(action) ? withWheelRange(built, range) : built;
     const id = initial.id || uniqueId(slug(`${m.input.type}-${m.input.number}-${label}`, "mapping"), existing);
     void cmd("midi.mapping.put", { mapping: { ...full, id } })
       .then(onClose)
@@ -160,8 +163,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           <label className="field wide">
             <span>{t.mode}</span>
             <select value={action === "position" || action === "colour" ? "trigger" : m.mode} onChange={(e) => setM({ ...m, mode: e.target.value as MappingDraft["mode"] })} disabled={modeLocked}>
-              {/* a wheel's gesture sends dozens of values: « toggle » would switch at each one */}
-              {(bend ? (["trigger", "latch", "momentary"] as const) : (["trigger", "latch", "momentary", "toggle"] as const)).map((x) => (
+              {(["trigger", "latch", "momentary", "toggle"] as const).map((x) => (
                 <option key={x} value={x}>
                   {t.modes[x]}
                 </option>
@@ -211,6 +213,16 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
               {t.colours.mappingDeleted}
             </p>
           )}
+          {/* a wheel to a level: its upper half (the rest is 0 %) or its whole travel (the rest is 50 %) */}
+          {bend && isLevelAction(action) && (
+            <label className="field wide">
+              <span>{t.wheelRange}</span>
+              <select aria-label={t.wheelRange} aria-describedby={rangeHintId} value={range} onChange={(e) => setRange(e.target.value as WheelRange)}>
+                <option value="upper">{t.wheelRanges.upper}</option>
+                <option value="full">{t.wheelRanges.full}</option>
+              </select>
+            </label>
+          )}
           {action === "colour" && (
             <label className="field wide">
               <span>{t.colours.mappingGroup}</span>
@@ -225,6 +237,11 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
             </label>
           )}
         </div>
+        {bend && isLevelAction(action) && (
+          <p className="hint" id={rangeHintId}>
+            {t.wheelRangeHint}
+          </p>
+        )}
       </fieldset>
       <fieldset className="mapping-group">
         <legend>{t.midiMoreSection}</legend>

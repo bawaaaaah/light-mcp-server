@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { MidiMapper, MappingSchema } from "../src/plugins/light/midi/mapping.js";
-import { PITCHBEND_REST, bendThreshold, build, keptOf, newMapping, withInputType, type MappingDraft } from "../web/src/mappingActions.js";
+import { PITCHBEND_REST, bendThreshold, build, keptOf, newMapping, wheelRangeOf, withInputType, withWheelRange, type MappingDraft } from "../web/src/mappingActions.js";
 
 /**
  * A pitch bend in the mapping editor (docs/specs/midi.md, « Pitch bend »): the channel's wheel, played like a CC on its
@@ -30,12 +30,21 @@ describe("pitch bend mappings, as the editor builds them", () => {
     expect(bendThreshold(0, "flash")).to.equal(PITCHBEND_REST);
   });
 
-  it("a wheel never toggles: chosen or written « toggle », it plays « latch »; a CC keeps its toggle", () => {
-    expect(withInputType({ ...newMapping(), mode: "toggle" }, "pitchbend", "look").mode).to.equal("latch");
+  it("a wheel keeps « toggle »: the mapper switches it once per push", () => {
+    expect(withInputType({ ...newMapping(), mode: "toggle" }, "pitchbend", "look").mode).to.equal("toggle");
     const bend = { ...newMapping(), input: { type: "pitchbend" as const, channel: 1, number: 0 }, mode: "toggle" as const };
-    expect(build(bend, "look", "hole").mode).to.equal("latch");
-    expect(build(bend, "flash", "front").mode).to.equal("latch");
-    expect(build({ ...newMapping(), input: { type: "cc", channel: 1, number: 20 }, mode: "toggle" }, "flash", "front").mode).to.equal("toggle");
+    expect(build(bend, "look", "hole").mode).to.equal("toggle");
+    expect(build(bend, "flash", "front").mode).to.equal("toggle");
+  });
+
+  it("a wheel to a level: its upper half (scale from 64) or its whole travel (from 0), read back; a note gets its scale back", () => {
+    const bend = withInputType(newMapping(), "pitchbend", "dca");
+    expect(withWheelRange(bend, "upper").scale?.inMin).to.equal(PITCHBEND_REST);
+    expect(wheelRangeOf(withWheelRange(bend, "upper"))).to.equal("upper");
+    expect(wheelRangeOf(withWheelRange(bend, "full"))).to.equal("full");
+    const note = { ...newMapping(), scale: { inMin: 0, inMax: 127 } };
+    const upper = withWheelRange(withInputType(note, "pitchbend", "dca"), "upper");
+    expect(withInputType(upper, "note", "dca", keptOf(note)).scale).to.deep.equal({ inMin: 0, inMax: 127 });
   });
 
   it("a flash from a pitch bend or a CC keeps its mode; from a note it is held while pressed", () => {
