@@ -309,3 +309,19 @@ test("library by keyboard: a row deleted from its menu gives the focus to the ne
   await deleteByKeyboard(page, "Focus Last");
   await expect(page.locator("#library-list")).toBeFocused();
 });
+
+test("library by keyboard: the last row of a page deleted gives the focus to the row that slides into its place", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await signIn(page);
+  // more rows than a page (100): the row after the page's last one is not drawn until the list is read again
+  for (let n = 0; n < 102; n++) await api(page, "library.duplicate", { id: "shared/mode-par.qxf", model: `Bulk ${String(n).padStart(3, "0")}` });
+  await page.locator("nav.pages button", { hasText: "Bibliothèque" }).click();
+  await page.getByRole("searchbox", { name: "Rechercher" }).fill("bulk");
+  const buttons = page.locator("table.library-table button.row-actions");
+  await expect(buttons).toHaveCount(100);
+  await expect(buttons.last()).toHaveAccessibleName("Actions sur Test Bulk 099");
+  await deleteByKeyboard(page, "Bulk 099");
+  // the old 101st row now ends the page, and has the keyboard: never the row before
+  await expect(buttons).toHaveCount(100);
+  await expect(page.getByRole("button", { name: "Actions sur Test Bulk 100", exact: true })).toBeFocused();
+});

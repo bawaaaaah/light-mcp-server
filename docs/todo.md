@@ -147,6 +147,8 @@ Revue de la structure après T43 à T51 (commit 7f341c1) : jscpd 0,05 % de ligne
 
 ### Restes des revues, côté serveur et tests
 - **Fait (2026-11-17, branche `fix/leftovers-server`)**, sans changement de comportement : le test « the heads really move » (`qxw-to-show.test.ts`) suit une horloge injectée au lieu d'attendre 300 ms (50 passages sur 50) ; `npm run typecheck` vérifie aussi les specs UI (`test/ui/tsconfig.json`, avec les types DOM), sa seule erreur corrigée ; `FrameColors` partout à la place de `AttributeFrame["colors"]` ; `reloadFromDisk` relit les mappings par la collection gardée ; `Collection.schema` redevient privé, le garde de réouverture passe par `hasSchema`.
+### Restes des revues, côté web
+- **Fait (2026-11-17, branche `fix/leftovers-web`)** : l'éditeur de mapping MIDI propose « pitch bend » (sans champ numéro, aide sur le seuil à 7 bits) ; un pitch bend écrit par MCP s'ouvre et s'enregistre tel quel, et se comporte comme une CC pour le flash et le figeage. Bibliothèque : la suppression de la dernière ligne d'une page (plus de 100 lignes) rend le focus à la ligne qui prend sa place, lue dans la liste triée complète et non dans le DOM. Deux tests UI (rouges sans le correctif). Reste : `midi.learn` n'apprend pas un pitch bend (côté serveur, non demandé).
 
 ## 🔴 Fiabilité de la sortie et du moteur
 

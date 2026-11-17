@@ -423,10 +423,10 @@ export function LibraryPage(): ReactElement {
           onClose={() => setMenu(null)}
           onPick={(d) => {
             lastRow.current = menu.id;
-            // the row gone with the action (deleted, merged away): the next row's ⋯, the previous one's if it was the last
-            const ids = [...document.querySelectorAll<HTMLElement>("button[data-row-actions]")].map((b) => b.dataset.rowActions ?? "");
-            const at = ids.indexOf(menu.id);
-            rowNeighbours.current = at < 0 ? [] : [ids[at + 1], ids[at - 1]].filter((id): id is string => Boolean(id));
+            // the row gone with the action (deleted, merged away): the next row's ⋯, the previous one's if it was the last;
+            // read from the whole sorted list, not the rows drawn: the next row past the page's end slides into its place
+            const at = sorted.findIndex((r) => r.id === menu.id);
+            rowNeighbours.current = at < 0 ? [] : [sorted[at + 1]?.id, sorted[at - 1]?.id].filter((id): id is string => Boolean(id));
             opener.current = null;
             // no row left at all: the table's title, never an older dialog's section
             openerSection.current = listSection.current;
