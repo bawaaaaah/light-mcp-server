@@ -7,18 +7,10 @@ import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
+import { targetListOf, type ButtonMode, type Widget, type WidgetKind } from "../dashboard-layout";
 
-export type WidgetKind = "look" | "group-fader" | "panic" | "blackout" | "tap" | "section" | "song-nav" | "label" | "stop-all" | "xy" | "preview" | "channel-fader" | "snapshot" | "grand-master" | "motion-lock" | "target" | "position" | "colours" | "zones";
-export type ButtonMode = "trigger" | "latch" | "momentary" | "toggle";
-export interface MenuWidget {
-  id: string;
-  kind: WidgetKind;
-  target?: string;
-  label?: string;
-  mode?: ButtonMode;
-  color?: string;
-  confirm?: boolean;
-}
+/** What the menu reads and changes of a widget: not its place on the grid. */
+type MenuWidget = Omit<Widget, "x" | "y" | "w" | "h">;
 interface Named {
   id: string;
   name: string;
@@ -156,7 +148,8 @@ export function WidgetMenu({
     const a = actionOf(m);
     return a.action === action.action && a.target === action.target;
   }) : [];
-  const targets: Named[] = widget.kind === "look" ? looks : widget.kind === "channel-fader" ? faders : widget.kind === "group-fader" || widget.kind === "xy" || widget.kind === "motion-lock" || widget.kind === "colours" || widget.kind === "zones" ? groups : widget.kind === "snapshot" ? snapshots : widget.kind === "target" ? targetList : widget.kind === "position" ? positions : [];
+  const list = targetListOf(widget.kind);
+  const targets: Named[] = list ? { looks, faders, groups, snapshots, targets: targetList, positions }[list] : [];
   const learn = () => {
     if (!action) return;
     setLearning(true);
