@@ -265,3 +265,23 @@ test("library: a dialog opened from the trash gives the keyboard back to its but
   await api(page, "library.delete", { id: copy.id });
   await api(page, "library.trash.empty");
 });
+
+test("library by keyboard: a row deleted from its menu leaves the focus on the table's title, after a trash dialog too", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await signIn(page);
+  await api(page, "library.duplicate", { id: "shared/mode-par.qxf", model: "Focus Gone" });
+  const trashed = (await api(page, "library.duplicate", { id: "shared/mode-par.qxf", model: "Focus Trash" })) as { id: string };
+  await api(page, "library.delete", { id: trashed.id }); // something in the trash: its « Vider » button shows
+  await page.locator("nav.pages button", { hasText: "Bibliothèque" }).click();
+  // a dialog of the trash first: its section must not be where a later row action sends the keyboard
+  const empty = page.getByRole("button", { name: "Vider la corbeille" });
+  await empty.click();
+  await page.getByRole("dialog", { name: "Vider la corbeille" }).getByRole("button", { name: "Annuler" }).click();
+  await expect(empty).toBeFocused();
+  await page.getByRole("button", { name: "Actions sur Test Focus Gone" }).focus();
+  await page.keyboard.press("Shift+F10");
+  await page.getByRole("dialog", { name: "Actions sur Test Focus Gone" }).getByRole("button", { name: /Supprimer/ }).click();
+  await page.getByRole("dialog", { name: "Supprimer Test Focus Gone" }).getByRole("button", { name: "Mettre à la corbeille" }).click();
+  await expect(row(page, "Focus Gone")).toHaveCount(0);
+  await expect(page.locator("#library-list")).toBeFocused(); // never the page's body, nor the trash's title
+});

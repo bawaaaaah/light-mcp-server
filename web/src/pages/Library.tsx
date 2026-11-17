@@ -149,6 +149,8 @@ export function LibraryPage(): ReactElement {
   const opener = useRef<HTMLElement | null>(null);
   /** The section the opener was in: its title takes the focus when the opener went with the action (a restored entry). */
   const openerSection = useRef<HTMLElement | null>(null);
+  /** The table's section: where the keyboard lands when a row's action took the row away. */
+  const listSection = useRef<HTMLElement | null>(null);
   /** A dialog opened by a button of the page (not the row menu): the focus comes back to that button. */
   const openFrom = (el: HTMLElement, d: Dialog) => {
     lastRow.current = null;
@@ -190,8 +192,8 @@ export function LibraryPage(): ReactElement {
 
   return (
     <div className="library-page">
-      <section>
-        <h2>
+      <section ref={listSection} aria-labelledby="library-list">
+        <h2 id="library-list" tabIndex={-1}>
           {t.library} <span className="count">({rows.length})</span>
         </h2>
         <p className="hint">{l.help}</p>
@@ -417,6 +419,8 @@ export function LibraryPage(): ReactElement {
           onPick={(d) => {
             lastRow.current = menu.id;
             opener.current = null;
+            // the row gone with the action (deleted, merged away): the table's title, never an older dialog's section
+            openerSection.current = listSection.current;
             setMenu(null);
             // once the menu has given the focus back to the row: the dialog then takes it, and gives it back on close
             window.setTimeout(() => setDialog(d), 0);
