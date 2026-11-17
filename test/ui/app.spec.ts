@@ -4805,7 +4805,7 @@ test("a page whose file an update replaced: the tab reloads once and shows it, n
   await expect(page.getByRole("alert")).toContainText("Cette page n'a pas pu se charger");
   await page.waitForTimeout(1500);
   expect(loads).toBe(2); // ours, and the one reload: no loop
-  await page.locator("nav.pages button", { hasText: "Live" }).first().click(); // the rest still works
+  await page.locator("nav.pages button", { hasText: "Live" }).click(); // the rest still works
   await expect(page.locator(".dgrid")).toBeVisible();
 });
 
@@ -6702,6 +6702,10 @@ test("MIDI mapping: a wheel to a DCA, its upper half by default, then its whole 
   const range = editor.getByRole("combobox", { name: "Course de la molette" });
   await expect(range).toHaveValue("upper");
   await expect(range).toHaveAccessibleDescription(/le bas de la molette ne fait rien/);
+  // no threshold for a level: shown at 0, not to be typed, and said why
+  await expect(editor.getByLabel("Seuil")).toHaveValue("0");
+  await expect(editor.getByLabel("Seuil")).toHaveAttribute("readonly", "");
+  await expect(editor.getByLabel("Seuil")).toHaveAccessibleDescription(/n'a pas de seuil/);
   await editor.getByLabel("Libellé").fill("Molette DCA");
   await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
   await expect(editor).toHaveCount(0);
@@ -6754,7 +6758,14 @@ test("MIDI page: a wheel's action when its input goes, released or kept by kind 
   const web = page.getByRole("combobox", { name: "Web MIDI du navigateur" });
   try {
     await expect(web).toHaveValue("release"); // by default
-    await expect(page.getByRole("group", { name: /Entrée perdue/ })).toHaveAccessibleDescription(/Un changement de profil relâche toujours/);
+    // Web MIDI's choice is kept for this browser: the MIDI page left and opened again, still on
+    const relay = page.getByRole("checkbox", { name: /MIDI de ce navigateur/ });
+    await relay.check();
+    await page.locator("nav.pages button", { hasText: "Live" }).click();
+    await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+    await expect(relay).toBeChecked();
+    await relay.uncheck();
+    await expect(page.getByRole("group", { name: /Entrée perdue/ })).toHaveAccessibleDescription(/seules entrées qu.il ferme/);
     await web.selectOption("keep");
     await expect.poll(async () => ((await api(page, "midi.status")) as { portLoss: { web: string; local: string } }).portLoss).toEqual({ local: "release", rtp: "release", web: "keep" });
   } finally {

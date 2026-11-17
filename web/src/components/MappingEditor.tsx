@@ -47,6 +47,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   };
   const bendHintId = useId();
   const rangeHintId = useId();
+  const bendLevelId = useId();
   /** A wheel to a level: its upper half by default; a mapping saved that way (or by hand) reads back as it plays. */
   /** A wheel's button threshold, kept while a level action (threshold 0) is chosen. */
   const [buttonThreshold, setButtonThreshold] = useState<number | undefined>(undefined);
@@ -94,6 +95,8 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
 
   const dj = m.input.port === "OS2L";
   const bend = !dj && m.input.type === "pitchbend";
+  /** A wheel to a level: it follows the wheel from 0, with no threshold. */
+  const bendLevel = bend && isLevelAction(action);
   const setType = (type: MidiType) => {
     const k = keptNow();
     setKept(k);
@@ -181,10 +184,25 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
           {m.input.type !== "programchange" && (
             <label className="field" title={t.thresholdHelp}>
               <span>{t.threshold}</span>
-              <input type="number" min={0} max={126} step={1} value={m.threshold ?? 0} onChange={(e) => setM({ ...m, threshold: Math.min(126, Math.max(0, Math.round(Number(e.target.value)) || 0)) })} />
+              {/* a wheel to a level is saved with no threshold: shown as it will be, not to be typed */}
+              <input
+                type="number"
+                min={0}
+                max={126}
+                step={1}
+                value={bendLevel ? 0 : (m.threshold ?? 0)}
+                readOnly={bendLevel}
+                aria-describedby={bendLevel ? bendLevelId : undefined}
+                onChange={(e) => setM({ ...m, threshold: Math.min(126, Math.max(0, Math.round(Number(e.target.value)) || 0)) })}
+              />
             </label>
           )}
         </div>
+        {bendLevel && (
+          <p className="hint" id={bendLevelId}>
+            {t.wheelLevelThreshold}
+          </p>
+        )}
         {/* what the chosen mode does, so the choice reads without the docs; a level action follows its control */}
         <p className="hint">{action === "position" ? t.positions.modeLockedHint : action === "colour" ? t.colours.modeHint : modeLocked ? t.modeLockedHint : action === "freeze" && m.mode === "trigger" ? t.motionLock.midiTriggerHint : t.modeHints[m.mode]}</p>
         {m.input.type !== "programchange" && <p className="hint">{t.thresholdHelp}</p>}

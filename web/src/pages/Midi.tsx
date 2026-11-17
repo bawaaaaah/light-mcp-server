@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useId, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { control } from "../ws";
@@ -160,6 +160,40 @@ function RtpPanel({ status, onChange }: { status: Status; onChange: () => void }
 }
 
 /** Web MIDI: a controller plugged into this browser's device relays its messages to the server. */
+/**
+ * This browser tab, in its Web MIDI ports' names: two browsers with a « Pad » of the same name stay two inputs (one's
+ * wheel at rest never releases the other's push, leaving the page lets go of its own inputs only).
+ */
+const WEB_MIDI_TAB = (() => {
+  const made = Math.random().toString(36).slice(2, 6);
+  try {
+    const kept = sessionStorage.getItem("webMidiTab");
+    if (kept) return kept;
+    sessionStorage.setItem("webMidiTab", made);
+  } catch {
+    // no session storage (a private window): a name for this page's life only
+  }
+  return made;
+})();
+const webMidiPort = (name: string) => `Web MIDI · ${name} · ${WEB_MIDI_TAB}`;
+
+/** Web MIDI on or off, kept for this browser: the relay stops while the MIDI page is closed and starts again on its return. */
+const WEB_MIDI_KEY = "webMidiOn";
+const readWebMidi = (): boolean => {
+  try {
+    return localStorage.getItem(WEB_MIDI_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+const keepWebMidi = (on: boolean): void => {
+  try {
+    localStorage.setItem(WEB_MIDI_KEY, on ? "1" : "0");
+  } catch {
+    // not kept: off again at the next visit
+  }
+};
+
 function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
   const t = useT();
   const [inputs, setInputs] = useState<string[]>([]);
@@ -174,16 +208,18 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string } {
     let access: MIDIAccess | undefined;
     /** The inputs relayed: one gone is said to the server, which releases what its wheels held (midi.web.closed). */
     let relayed: string[] = [];
-    const closed = (names: string[]) => names.forEach((name) => void cmd("midi.web.closed", { port: `Web MIDI · ${name}` }).catch(() => undefined));
+    const closed = (names: string[]) => names.forEach((name) => void cmd("midi.web.closed", { port: webMidiPort(name) }).catch(() => undefined));
     const bind = () => {
       if (!access) return;
       const names: string[] = [];
       access.inputs.forEach((input) => {
-        names.push(input.name ?? input.id);
+        if (input.state === "disconnected") return;
+        const name = input.name ?? input.id;
+        names.push(name);
         input.onmidimessage = (e) => {
           const data = e.data;
           if (!data || data.length === 0 || data[0] === 0xf8 || data[0] === 0xfe) return; // clock/active sensing stay local
-          void cmd("midi.in", { port: `Web MIDI · ${input.name ?? input.id}`, bytes: Array.from(data).slice(0, 3) }).catch(() => undefined);
+          void cmd("midi.in", { port: webMidiPort(name), bytes: Array.from(data).slice(0, 3) }).catch(() => undefined);
         };
       });
       closed(relayed.filter((n) => !names.includes(n)));
@@ -243,7 +279,14 @@ export function MidiPage(): ReactElement {
   const [listening, setListening] = useState(false);
   const [monitor, setMonitor] = useState<string[]>([]);
   const [now, setNow] = useState(Date.now());
-  const [webMidi, setWebMidi] = useState(false);
+  const [webMidi, setWebMidiState] = useState(readWebMidi);
+  const setWebMidi = (on: boolean) => {
+    keepWebMidi(on);
+    setWebMidiState(on);
+  };
+  const portLossHelpId = useId();
+  /** A port-loss choice on its way to the server: the lists wait for its answer. */
+  const [portLossBusy, setPortLossBusy] = useState(false);
   const [editing, setEditing] = useState<MappingDraft | null>(null);
   const [error, setError] = useState("");
   // AbleSet followed over OSC: its state every two seconds while this page is open
@@ -288,6 +331,8 @@ export function MidiPage(): ReactElement {
   const web = useWebMidi(webMidi);
   /** A message and what it did: the mappings it matched, each command, and the time it took when long. */
   const describe = (e: MonitorEntry) => {
+    // a release with no message (an input gone, a profile change, a mapping changed): its cause, and what it let go
+    if (e.msg.type === "release") return `${e.port || "—"} · ${t.releaseCauses[e.msg.cause as keyof typeof t.releaseCauses] ?? String(e.msg.cause)} → ${e.matched?.map((x) => x.label || x.id).join(", ") ?? ""}${t.colon} ${e.calls.map((c) => `${c.command}${c.target ? ` ${c.target}` : ""} ${c.ok ? "✓" : `✗ ${c.error ?? ""}`}`).join(", ") || t.monitorNothing}`;
     const raw = `${e.port} · ${Object.values(e.msg).join(" ")}`;
     if (!e.matched?.length) return `${raw} · ${t.monitorUnmapped}`;
     const who = e.matched.map((x) => `${x.label || x.id} (${t.modesShort[x.mode as keyof typeof t.modesShort] ?? x.mode})`).join(", ");
@@ -387,25 +432,28 @@ export function MidiPage(): ReactElement {
         )}
         {/* a wheel holding an action when its input goes: released (by default) or kept, by kind of input */}
         {status?.portLoss && (
-          <fieldset className="row" aria-describedby="midi-port-loss-help">
+          <fieldset className="row" aria-describedby={portLossHelpId} aria-busy={portLossBusy}>
             <legend>{t.portLoss.title}</legend>
             {PORT_KINDS.map((kind) => (
               <label key={kind}>
                 {t.portLoss.kinds[kind]}{" "}
                 <select
                   value={status.portLoss![kind]}
-                  onChange={(e) =>
+                  disabled={portLossBusy}
+                  onChange={(e) => {
+                    setPortLossBusy(true);
                     void cmd("midi.portloss.set", { [kind]: e.target.value })
                       .then(() => cmd<Status>("midi.status").then(setStatus))
                       .catch((err: Error) => setError(err.message))
-                  }
+                      .finally(() => setPortLossBusy(false));
+                  }}
                 >
                   <option value="release">{t.portLoss.release}</option>
                   <option value="keep">{t.portLoss.keep}</option>
                 </select>
               </label>
             ))}
-            <small className="hint" id="midi-port-loss-help">
+            <small className="hint" id={portLossHelpId}>
               {t.portLoss.help}
             </small>
           </fieldset>
