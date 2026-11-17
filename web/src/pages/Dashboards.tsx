@@ -211,14 +211,24 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const reads = useRef({ looks: 0, groups: 0, faders: 0, snapshots: 0, folders: 0 });
   /** The lists read at least once: before, a widget's target is not said « introuvable » (the list is only empty). */
   const [listsRead, setListsRead] = useState({ looks: false, groups: false, faders: false, snapshots: false });
-  const refresh = useCallback(() => {
+  /** The one way a read list is written: kept, and marked read. */
+  const applyRead = useMemo(() => {
     const readOnce = (list: keyof typeof listsRead) => setListsRead((r) => (r[list] ? r : { ...r, [list]: true }));
-    latestRead(reads.current, "looks", cmd<Look[]>("look.list", { brief: true }), (v) => (setLooks(v), readOnce("looks")));
-    latestRead(reads.current, "groups", cmd<Group[]>("group.list"), (v) => (setGroups(v), readOnce("groups")));
-    latestRead(reads.current, "faders", cmd<ChannelFader[]>("fader.list"), (v) => (setFaders(v), readOnce("faders")));
-    latestRead(reads.current, "snapshots", cmd<{ id: string; name: string }[]>("snapshot.list"), (v) => (setSnapshots(v), readOnce("snapshots")));
-    latestRead(reads.current, "folders", cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []));
+    return {
+      looks: (v: Look[]) => (setLooks(v), readOnce("looks")),
+      groups: (v: Group[]) => (setGroups(v), readOnce("groups")),
+      faders: (v: ChannelFader[]) => (setFaders(v), readOnce("faders")),
+      snapshots: (v: { id: string; name: string }[]) => (setSnapshots(v), readOnce("snapshots")),
+    };
   }, []);
+  const readGroups = useCallback(() => latestRead(reads.current, "groups", cmd<Group[]>("group.list"), applyRead.groups), [applyRead]);
+  const refresh = useCallback(() => {
+    latestRead(reads.current, "looks", cmd<Look[]>("look.list", { brief: true }), applyRead.looks);
+    readGroups();
+    latestRead(reads.current, "faders", cmd<ChannelFader[]>("fader.list"), applyRead.faders);
+    latestRead(reads.current, "snapshots", cmd<{ id: string; name: string }[]>("snapshot.list"), applyRead.snapshots);
+    latestRead(reads.current, "folders", cmd<{ folders: string[] }>("show.settings"), (s) => setNamedFolders(s.folders ?? []));
+  }, [applyRead, readGroups]);
   useEffect(() => {
     refresh();
     void cmd<Dashboard[]>("dashboard.list").then((l) => setDashboards(mine(l))).catch((e: Error) => setError(e.message));
@@ -231,9 +241,9 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const glided = useRef<string[]>([]);
   useEffect(() => {
     const now = Object.keys(glide.groups);
-    if (glided.current.some((id) => !now.includes(id))) latestRead(reads.current, "groups", cmd<Group[]>("group.list"), setGroups);
+    if (glided.current.some((id) => !now.includes(id))) readGroups();
     glided.current = now;
-  }, [glide.groups]);
+  }, [glide.groups, readGroups]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -427,14 +437,17 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   // several selected: what they share is set for all of them at once (one step to undo)
   const many = selection.length > 1 ? (dash?.widgets.filter((w) => selection.includes(w.id)) ?? []) : [];
   /** What a widget can drive, per list; a list not read yet is null. */
-  const targetLists: TargetLists = {
-    looks: listsRead.looks ? looks : null,
-    groups: listsRead.groups ? groups : null,
-    faders: listsRead.faders ? faders : null,
-    snapshots: listsRead.snapshots ? snapshots : null,
-    targets: targetsLoaded ? targets : null,
-    positions: positionsLoaded ? positions : null,
-  };
+  const targetLists = useMemo<TargetLists>(
+    () => ({
+      looks: listsRead.looks ? looks : null,
+      groups: listsRead.groups ? groups : null,
+      faders: listsRead.faders ? faders : null,
+      snapshots: listsRead.snapshots ? snapshots : null,
+      targets: targetsLoaded ? targets : null,
+      positions: positionsLoaded ? positions : null,
+    }),
+    [listsRead, looks, groups, faders, snapshots, targetsLoaded, targets, positionsLoaded, positions],
+  );
   const patchMany = (fn: (w: Widget) => Partial<Widget> | undefined) => update((d) => ({ ...d, widgets: d.widgets.map((w) => (selection.includes(w.id) ? { ...w, ...fn(w) } : w)) }));
   return (
     <div className="dashboards">

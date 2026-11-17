@@ -115,7 +115,8 @@ export function TargetSelect({ kind, value, lists, field = false, onChange }: { 
   if (!options.length && !missing) return null;
   const name = kind === "look" ? t.assignLook : kind === "target" ? t.targets.aimTarget : t.assignTarget;
   const select = (
-    <select aria-label={field ? undefined : name} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
+    // a list not read yet: nothing to choose, and « — » not chosen by mistake while it comes
+    <select aria-label={field ? undefined : name} disabled={!read} value={value ?? ""} onChange={(e) => onChange(e.target.value || undefined)}>
       <option value="">{kind === "motion-lock" ? t.motionLock.allHeads : "—"}</option>
       {missing && <option value={value}>{read ? t.targetMissing.replace("{id}", () => value!) : value}</option>}
       {options.map((x) => (

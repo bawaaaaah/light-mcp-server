@@ -1298,6 +1298,7 @@ test("dashboards: a snapshot widget gets its snapshot from the edit panel, as fr
   await expect(panel.getByLabel("Pilote").locator("option", { hasText: "introuvable" })).toHaveCount(0);
   // « — » clears the target: none saved
   await panel.getByLabel("Pilote").selectOption({ label: "—" });
+  await expect(panel.getByLabel("Pilote")).toHaveValue("");
   // a kind with nothing to drive has no picker
   await page.locator(".palette .chips:not(.bound) .chip", { hasText: "Tap tempo" }).click();
   await expect(panel.getByLabel("Libellé")).toBeVisible();
@@ -1322,20 +1323,30 @@ test("dashboards: a widget's target is not said « introuvable » while its list
     await released;
     await route.continue();
   });
-  await login(page);
-  type Saved = { widgets: { id: string; kind: string; target?: string }[] };
-  const hole = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
-  await page.locator(`.dgrid .cell[data-widget="${hole.id}"]`).click({ button: "right" });
-  const menu = page.getByRole("dialog", { name: "Réglages du widget" });
-  const picker = menu.getByLabel("Look lancé");
-  await expect(picker).toHaveValue("hole");
-  await expect(picker.locator("option:checked")).toHaveText("hole");
-  await expect(menu).not.toContainText("introuvable");
-  release();
-  await expect(picker.locator("option:checked")).toHaveText("hole"); // the look's name, now read
-  await expect(picker.locator("option", { hasText: "introuvable" })).toHaveCount(0);
-  await page.keyboard.press("Escape");
-  await page.unroute("**/api/plugins/light/commands/look.list");
+  try {
+    await login(page);
+    type Saved = { widgets: { id: string; kind: string; target?: string }[] };
+    const hole = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "look" && w.target === "hole")!;
+    await page.locator(`.dgrid .cell[data-widget="${hole.id}"]`).click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Réglages du widget" });
+    const picker = menu.getByLabel("Look lancé");
+    await expect(picker).toHaveValue("hole");
+    await expect(picker.locator("option:checked")).toHaveText("hole");
+    await expect(picker).toBeDisabled(); // nothing to choose yet, « — » not picked by mistake
+    await expect(menu).not.toContainText("introuvable");
+    const answered = page.waitForResponse("**/api/plugins/light/commands/look.list");
+    release();
+    await answered;
+    // the list read: the other looks are offered, and the button's own is still not missing
+    await expect(picker).toBeEnabled();
+    await expect(picker.locator("option", { hasText: "breath" })).toHaveCount(1);
+    await expect(picker.locator("option", { hasText: "introuvable" })).toHaveCount(0);
+    await expect(picker).toHaveValue("hole");
+    await page.keyboard.press("Escape");
+  } finally {
+    release();
+    await page.unroute("**/api/plugins/light/commands/look.list");
+  }
   expect(errors).toEqual([]);
 });
 
