@@ -1815,6 +1815,183 @@ test("dashboards: the menu's smoothing is read again with « Relire », and its 
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
 
+type ListStep = "fail" | "pass" | "hold";
+/** A list command scripted read by read: `script` first, then `mode`; a held read fails once let go (`letGo`). */
+async function scriptedList(page: Page, name: string) {
+  const st = { mode: "pass" as ListStep, script: [] as ListStep[], held: [] as (() => void)[], letGo: () => st.held.splice(0).forEach((r) => r()) };
+  await page.route(`**/api/plugins/light/commands/${name}`, async (route) => {
+    const step = st.script.shift() ?? st.mode;
+    if (step === "hold") {
+      await new Promise<void>((r) => st.held.push(r));
+      return route.fulfill({ status: 500, json: { ok: false, error: "lecture tardive en panne" } });
+    }
+    if (step === "fail") return route.fulfill({ status: 500, json: { ok: false, error: "liste illisible pour le test" } });
+    await route.continue();
+  });
+  return st;
+}
+const firstDca = async (page: Page) => {
+  type Saved = { widgets: { id: string; kind: string; target?: string }[] };
+  const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target);
+  expect(dca, "a DCA widget with its group on the first dashboard").toBeTruthy();
+  return dca!;
+};
+
+test("dashboards: the page's lists read while the smoothing is typed in remount nothing: the focus stays, the value saved is the one typed", async ({ page }) => {
+  const errors = watchErrors(page);
+  const st = await scriptedList(page, "group.list");
+  st.mode = "fail";
+  await login(page);
+  await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1);
+  const dca = await firstDca(page);
+  st.mode = "pass";
+  const g = ((await api(page, "group.list")) as { id: string; master?: object }[]).find((x) => x.id === dca.target)!;
+  try {
+    st.mode = "fail";
+    await api(page, "group.put", { group: { ...g, master: { ...g.master, smoothing: { curve: "linear", msPerStep: 20 } } } });
+    await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1);
+    // an intermittent server: the page's read fails, the menu's own passes, then each keystroke saves and the page reads
+    st.mode = "pass";
+    st.script = ["fail", "pass", "fail"];
+    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+    const menu = page.locator(".widget-menu");
+    const input = menu.getByLabel("ms par pas");
+    await expect(input).toBeVisible();
+    await input.click();
+    await input.press("ControlOrMeta+a");
+    await page.keyboard.type("345", { delay: 300 });
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue("345");
+    await expect.poll(async () => ((await api(page, "group.list")) as { id: string; master?: { smoothing?: { msPerStep?: number } } }[]).find((x) => x.id === dca.target)?.master?.smoothing?.msPerStep).toBe(345);
+    await page.keyboard.press("Escape");
+  } finally {
+    st.mode = "pass";
+    st.script = [];
+    await api(page, "group.put", { group: g });
+    await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: the smoothing's first read failing late, after « Relire » read it, says nothing", async ({ page }) => {
+  const errors = watchErrors(page);
+  const st = await scriptedList(page, "group.list");
+  st.mode = "fail";
+  try {
+    await login(page);
+    await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1);
+    st.mode = "pass";
+    const dca = await firstDca(page);
+    st.mode = "fail";
+    st.script = ["fail", "hold", "fail"]; // the page's read, the menu's own (kept on the wire), the page's retry
+    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+    const menu = page.locator(".widget-menu");
+    const again = menu.locator(".read-why").getByRole("button", { name: "Relire" });
+    await expect(again).toHaveAttribute("aria-disabled", "false");
+    await expect.poll(() => st.held.length).toBe(1);
+    st.mode = "pass";
+    await again.click();
+    await expect(menu.getByLabel("Lissage")).toBeVisible();
+    st.letGo(); // the first read fails, late
+    await page.waitForTimeout(300);
+    await expect(menu.locator("p.error")).toHaveCount(0);
+    await expect(menu.getByLabel("Lissage")).toBeVisible();
+    await page.keyboard.press("Escape");
+  } finally {
+    st.letGo();
+    await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: a list read, then the server away: the menu's smoothing comes back with the page's next read, or the alert's « Relire »", async ({ page }) => {
+  const errors = watchErrors(page);
+  const st = await scriptedList(page, "group.list");
+  try {
+    await login(page);
+    const dca = await firstDca(page);
+    const menu = page.locator(".widget-menu");
+    const alert = page.locator(".dashboards .bar .read-error");
+    const open = async () => {
+      st.mode = "fail";
+      await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+      await expect(alert).toHaveCount(1);
+      await expect(menu.locator("p.error")).toContainText("liste illisible pour le test");
+      await expect(menu.getByLabel("Lissage")).toHaveCount(0);
+      st.mode = "pass";
+    };
+    // a command elsewhere: the page reads its lists again, the menu open
+    await open();
+    await api(page, "look.stopall");
+    await expect(alert).toHaveCount(0);
+    await expect(menu.locator("p.error")).toHaveCount(0);
+    await expect(menu.getByLabel("Lissage")).toBeVisible();
+    await page.keyboard.press("Escape");
+    // the alert's « Relire », from the keyboard (the menu stays open)
+    await open();
+    await alert.getByRole("button", { name: "Relire" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(alert).toHaveCount(0);
+    await expect(menu.locator("p.error")).toHaveCount(0);
+    await expect(menu.getByLabel("Lissage")).toBeVisible();
+    await page.keyboard.press("Escape");
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: the smoothing's read error goes with its field", async ({ page }) => {
+  const errors = watchErrors(page);
+  const st = await scriptedList(page, "group.list");
+  try {
+    await login(page);
+    const dca = await firstDca(page);
+    st.mode = "fail";
+    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+    const menu = page.locator(".widget-menu");
+    await expect(menu.locator("p.error")).toContainText("liste illisible pour le test");
+    await menu.getByLabel("Pilote").selectOption(""); // no group: no smoothing, nor its error
+    await expect(menu.locator("p.error")).toHaveCount(0);
+    st.mode = "pass";
+    await menu.getByLabel("Pilote").selectOption(dca.target!); // put back
+    await expect(menu.getByLabel("Lissage")).toBeVisible();
+    await page.keyboard.press("Escape");
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: a channel fader's smoothing comes back with the page's next read of the faders", async ({ page }) => {
+  const errors = watchErrors(page);
+  const st = await scriptedList(page, "fader.list");
+  try {
+    await login(page);
+    const fixture = ((await api(page, "venue.fixture.list")) as { id: string }[])[0];
+    expect(fixture, "a fixture in the venue").toBeTruthy();
+    await api(page, "fader.put", { fader: { id: "t54-fader", name: "Fader essai", channels: [{ fixture: fixture!.id, offset: 0 }], level: 0 } });
+    await api(page, "dashboard.put", { dashboard: { id: "t54-fader", name: "Fader essai", columns: 12, widgets: [{ id: "f", kind: "channel-fader", x: 0, y: 0, w: 1, h: 4, target: "t54-fader" }] } });
+    await page.reload();
+    await page.locator(".dashboards .bar .tab", { hasText: "Fader essai" }).click();
+    st.mode = "fail";
+    await page.locator('.dgrid .cell[data-widget="f"]').click({ button: "right" });
+    const menu = page.locator(".widget-menu");
+    await expect(menu.locator("p.error")).toContainText("liste illisible pour le test");
+    await expect(menu.getByLabel("Lissage")).toHaveCount(0);
+    st.mode = "pass";
+    await api(page, "look.stopall"); // the page reads its lists again
+    await expect(menu.locator("p.error")).toHaveCount(0);
+    await expect(menu.getByLabel("Lissage")).toBeVisible();
+    await page.keyboard.press("Escape");
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/fader.list");
+    await api(page, "dashboard.delete", { id: "t54-fader" });
+    await api(page, "fader.delete", { id: "t54-fader", force: true });
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
 test("dashboards: what « Relire » said follows the language", async ({ page }) => {
   const errors = watchErrors(page);
   const a = await alertRelire(page);

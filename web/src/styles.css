@@ -142,6 +142,7 @@ h2 {
 }
 /* its message's line is kept even empty: « Relire » does not move when it comes */
 .read-why .reread-still {
+  min-height: 1.4em;
   min-height: 1lh;
 }
 .warn {

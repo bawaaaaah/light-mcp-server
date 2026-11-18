@@ -292,11 +292,11 @@ export function WidgetMenu({
       </label>
       {widget.kind === "grand-master" && <GrandMasterSmoothing onError={setError} />}
       {(widget.kind === "group-fader" || widget.kind === "channel-fader") && widget.target && (
-        // read again once the page's list is (« Relire »): keyed by whether it is read
         <TargetSmoothing
-          key={`${widget.target}:${(widget.kind === "group-fader" ? lists.groups : lists.faders) !== null}`}
+          key={widget.target}
           kind={widget.kind === "group-fader" ? "group" : "fader"}
           id={widget.target}
+          pageList={widget.kind === "group-fader" ? lists.groups : lists.faders}
           onError={setError}
           onReadError={setReadError}
         />
@@ -464,18 +464,42 @@ function GrandMasterSmoothing({ onError }: { onError: (e: string) => void }) {
 }
 
 /** A DCA's or a channel fader's smoothing, saved at once on the object it drives. */
-function TargetSmoothing({ kind, id, onError, onReadError }: { kind: "group" | "fader"; id: string; onError: (e: string) => void; onReadError: (e: string) => void }) {
+function TargetSmoothing({ kind, id, pageList, onError, onReadError }: {
+  kind: "group" | "fader";
+  id: string;
+  /** The page's own list of the same objects: each new read of it is a chance to read the smoothing again. */
+  pageList: readonly unknown[] | null;
+  onError: (e: string) => void;
+  onReadError: (e: string) => void;
+}) {
   type Target = { id: string; smoothing?: Smoothing; master?: { level: number; mute: boolean; smoothing?: Smoothing } };
   const [target, setTarget] = useState<Target | null>(null);
-  // its read failing is said until a read passes (not a write's error: those stay the menu's)
-  useEffect(
-    () =>
-      void cmd<Target[]>(`${kind}.list`).then(
-        (l) => (setTarget(l.find((x) => x.id === id) ?? null), onReadError("")),
-        (e: Error) => onReadError(e.message),
-      ),
-    [kind, id, onReadError],
-  );
+  /**
+   * Its own read passed: until then (failed, or still on its way) it is read again at the page's next read of the list;
+   * once shown, never (no remount under a hand that is typing).
+   */
+  const [ok, setOk] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  // its read failing is said until a read passes (not a write's error: those stay the menu's); a read answering after
+  // a newer one started, or after the menu closed, changes nothing
+  useEffect(() => {
+    let live = true;
+    void cmd<Target[]>(`${kind}.list`).then(
+      (l) => live && (setTarget(l.find((x) => x.id === id) ?? null), setOk(true), onReadError("")),
+      (e: Error) => live && onReadError(e.message),
+    );
+    return () => {
+      live = false;
+    };
+  }, [kind, id, onReadError, attempt]);
+  const seen = useRef(pageList);
+  useEffect(() => {
+    if (pageList === seen.current) return;
+    seen.current = pageList;
+    if (pageList && !ok) setAttempt((n) => n + 1);
+  }, [pageList, ok]);
+  // gone with its field: its read error goes too
+  useEffect(() => () => onReadError(""), [onReadError]);
   // a group without a master has no fader to smooth
   if (!target || (kind === "group" && !target.master)) return null;
   return (
