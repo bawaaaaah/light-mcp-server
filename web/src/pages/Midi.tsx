@@ -177,6 +177,8 @@ const keepWebMidi = (on: boolean): void => {
 
 /** Held by the one tab of this browser that relays its Web MIDI: the others wait for it (the same devices, twice). */
 const WEB_MIDI_LOCK = "light-web-midi-relay";
+/** The previous relay's end (its last flush answered, its inputs said gone): the next one binds its inputs after it. */
+let previousRelay: Promise<void> = Promise.resolve();
 
 /** The hub's channel as `useSyncExternalStore` reads it: one subscription for every render. */
 const subscribeLink = (fn: () => void) => control.onStatus(fn);
@@ -275,12 +277,16 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waitin
           });
       });
     const locks = (navigator as Navigator & { locks?: LockManager }).locks;
-    if (locks) {
-      // another tab relaying: this one waits (the lock comes to it when that tab closes or stops)
-      void locks.request(WEB_MIDI_LOCK, { ifAvailable: true }, async (lock) => (lock ? relay() : setWaiting(true))).then(() => {
-        if (!stopped && !access && !failed) void locks.request(WEB_MIDI_LOCK, relay);
-      });
-    } else void relay();
+    // after the previous relay's end: its « closed » must reach the server before this one's first message
+    void previousRelay.then(() => {
+      if (stopped) return;
+      if (locks) {
+        // another tab relaying: this one waits (the lock comes to it when that tab closes or stops)
+        void locks.request(WEB_MIDI_LOCK, { ifAvailable: true }, async (lock) => (lock ? relay() : setWaiting(true))).then(() => {
+          if (!stopped && !access && !failed) void locks.request(WEB_MIDI_LOCK, relay);
+        });
+      } else void relay();
+    });
     return () => {
       stopped = true;
       setWaiting(false);
@@ -290,9 +296,10 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waitin
       // rest the « keep » setting would leave held), a few windows at most; then the relay stops (a late 429 sends
       // nothing again), then the inputs are said gone
       const gone = relayed;
-      void batcher.finish().then(() => {
-        for (const name of gone) relayOver(control, "midi.web.closed", { port: webMidiPort(name) }, outcome);
-      });
+      // the inputs said gone once the last flush is answered; the next relay waits for their « closed » to be answered too
+      previousRelay = batcher.finish().then(() =>
+        Promise.all(gone.map((name) => new Promise<void>((done) => relayOver(control, "midi.web.closed", { port: webMidiPort(name) }, { ...outcome, settled: done, dropped: done })))).then(() => undefined),
+      );
       release();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `t` only words the error: a language change must not close and reopen the MIDI access

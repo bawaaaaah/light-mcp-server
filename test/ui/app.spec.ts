@@ -6702,7 +6702,15 @@ test("MIDI mapping: « ignore repeats », offered for a CC in toggle or trigger 
   const mode = editor.getByRole("combobox", { name: "Mode" });
   await mode.selectOption("toggle");
   await expect(repeats).not.toBeChecked(); // unticked by default
+  await expect(repeats).toHaveAccessibleName("Ignorer les répétitions"); // its label only, its help read once, as its description
   await expect(repeats).toHaveAccessibleDescription(/moins de 150 ms/);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const label = editor.locator("label.row", { hasText: "Ignorer les répétitions" });
+  const help = editor.locator("small.hint", { hasText: "moins de 150 ms" });
+  const line = await label.evaluate((el) => parseFloat((globalThis as unknown as { getComputedStyle(e: unknown): { lineHeight: string; fontSize: string } }).getComputedStyle(el).fontSize));
+  expect((await label.boundingBox())!.height).toBeLessThan(line * 2.2); // the label on one line, not squeezed by its help
+  await help.click(); // the help is not part of the label: a click on it ticks nothing
+  await expect(repeats).not.toBeChecked();
   await mode.selectOption("latch");
   await expect(repeats).toHaveCount(0); // a latch: not offered
   await mode.selectOption("trigger");
@@ -6955,6 +6963,38 @@ test("Web MIDI: an input unplugged while its push is dropped: never sent again a
   });
   await page.waitForTimeout(800); // its 429 came meanwhile
   expect(order).toEqual(["in 224,0,127", "closed"]);
+  await relay.uncheck();
+});
+
+test("Web MIDI: switched off then on while a request is on its way: the old relay's « closed » comes before the new one's messages", async ({ page }) => {
+  const play = await fakeWebMidi(page);
+  const order: string[] = [];
+  let n = 0;
+  await page.routeWebSocket(/\/api\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string; body?: { messages?: { bytes: number[] }[] } };
+      if (msg.t === "req" && msg.path?.endsWith("/midi.in")) {
+        n++;
+        for (const m of msg.body?.messages ?? []) order.push(`in ${m.bytes.join(",")}`);
+        if (n === 1) return void setTimeout(() => server.send(message), 400); // a slow link: its answer 400 ms later
+      }
+      if (msg.t === "req" && msg.path?.endsWith("/midi.web.closed")) order.push("closed");
+      server.send(message);
+    });
+  });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  const relay = page.getByRole("checkbox", { name: /MIDI de ce navigateur/ });
+  await relay.check();
+  await expect(page.locator(".midi .bar span[role=status]").first()).toHaveText("Pad");
+  await play([0xe0, 0, 100]);
+  await relay.uncheck();
+  await relay.check(); // on again before the old relay's request is answered
+  await page.waitForFunction(() => typeof (globalThis as unknown as { fakePad: { onmidimessage: unknown } }).fakePad.onmidimessage === "function");
+  await play([0xe0, 0, 127]); // the new relay: the wheel pushed
+  await expect.poll(() => order.length).toBe(3);
+  expect(order).toEqual(["in 224,0,100", "closed", "in 224,0,127"]);
   await relay.uncheck();
 });
 

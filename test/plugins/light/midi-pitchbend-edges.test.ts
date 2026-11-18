@@ -203,7 +203,11 @@ async function wheelPlugin(mode: Mapping["mode"], midi: object = {}) {
   mkdirSync(join(dataRoot, "fixtures"), { recursive: true });
   copyFileSync(new URL("../../fixtures/bar4.qxf", import.meta.url), join(dataRoot, "fixtures", "bar4.qxf"));
   const cfg = { discovery: false, output: { routes: [] }, osc: { enabled: false }, os2l: { enabled: false }, midi: { active: "x", profiles: { x: { inputs: [], rtp: { enabled: false } }, y: { inputs: [], rtp: { enabled: false } } }, ...midi } };
-  const plugin = new LightPlugin({ eventBus: new EventBus(), config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
+  const bus = new EventBus();
+  /** What the plugin publishes (the MIDI page's monitor among it). */
+  const events: { type: string; payload: { warning?: string } }[] = [];
+  bus.subscribe((e) => void events.push(e as never));
+  const plugin = new LightPlugin({ eventBus: bus, config: { get: () => cfg, set: async () => undefined }, dataRoot, midiNative: null });
   const run = (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, systemContext());
   /** A call made over a browser's live connection (REST over the WebSocket: the transport names it). */
   const over = (connection: string) => (name: string, args: unknown = {}) => plugin.commands.invoke(name, args, { ...systemContext(), connection });
@@ -214,7 +218,7 @@ async function wheelPlugin(mode: Mapping["mode"], midi: object = {}) {
     for (let i = 0; i < 50 && (await active()) !== want; i++) await new Promise((r) => setTimeout(r, 10));
     return active();
   };
-  return { run, over, active, until, plugin };
+  return { run, over, active, until, plugin, events };
 }
 
 describe("pitch bend through the plugin", () => {
@@ -329,6 +333,22 @@ describe("pitch bend through the plugin", () => {
     batcher.flush();
     await Promise.all(calls); // every part accepted: none over the limit
     expect(await until(false)).to.equal(false);
+  });
+
+  it("its Web MIDI route is lossy; each batch dropped counted in midi.status, said on the monitor once a second", async function () {
+    this.timeout(10_000);
+    const { run, plugin, events } = await wheelPlugin("momentary");
+    expect(plugin.liveLossyRoutes()).to.deep.equal(["commands/midi.in"]); // the hub's own rate for it, never a close
+    for (let i = 0; i < 3; i++) plugin.liveRequestDropped();
+    expect(((await run("midi.status")) as { webMidiDropped: number }).webMidiDropped).to.equal(3);
+    const said = () => events.filter((e) => e.type === "midi" && e.payload.warning).map((e) => e.payload.warning);
+    expect(said()).to.deep.equal([]); // not at once: once for the second
+    await new Promise((r) => setTimeout(r, 1100));
+    expect(said()).to.deep.equal(["3 lot(s) Web MIDI jeté(s) : flux trop rapide"]);
+    plugin.liveRequestDropped();
+    await new Promise((r) => setTimeout(r, 1100));
+    expect(said()).to.deep.equal(["3 lot(s) Web MIDI jeté(s) : flux trop rapide", "1 lot(s) Web MIDI jeté(s) : flux trop rapide"]);
+    expect(((await run("midi.status")) as { webMidiDropped: number }).webMidiDropped).to.equal(4);
   });
 
   it("refuses a batch of 513 messages, an empty one, and any batch on a connection said closed", async function () {

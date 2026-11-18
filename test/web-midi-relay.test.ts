@@ -10,7 +10,7 @@ describe("Web MIDI relay", () => {
     const said: string[] = [];
     return {
       channel: { online, request: (_m: "POST", path: string, body: unknown) => (sent.push({ path, body }), answer()), reconnect: () => void reconnects++ },
-      outcome: { ok: () => void said.push("ok"), refused: (why: string) => void said.push(`refused ${why}`), forbidden: () => void said.push("forbidden"), dropped: () => void said.push("dropped") },
+      outcome: { ok: () => void said.push("ok"), refused: (why: string) => void said.push(`refused ${why}`), forbidden: () => void said.push("forbidden"), dropped: () => void said.push("dropped"), settled: () => void said.push("settled") },
       sent,
       said,
       reconnects: () => reconnects,
@@ -27,52 +27,52 @@ describe("Web MIDI relay", () => {
     const f = fake(false, async () => ({ status: 200, body: {} }));
     await relay(f);
     expect(f.sent).to.deep.equal([]);
-    expect(f.said).to.deep.equal([]);
+    expect(f.said).to.deep.equal(["settled"]); // not sent: settled at once (a relay ending does not wait for it)
   });
 
   it("online: sent over the connection as the command's route; accepted, a refusal said before is over", async () => {
     const f = fake(true, async () => ({ status: 200, body: { ok: true } }));
     await relay(f);
     expect(f.sent).to.deep.equal([{ path: "/api/plugins/light/commands/midi.in", body: bend }]);
-    expect(f.said).to.deep.equal(["ok"]);
+    expect(f.said).to.deep.equal(["settled", "ok"]);
     expect(f.reconnects()).to.equal(0);
   });
 
   it("its connection said closed (422): said, and the connection opened again", async () => {
     const f = fake(true, async () => ({ status: 422, body: { error: "connexion fermée" } }));
     await relay(f);
-    expect(f.said).to.deep.equal(["refused connexion fermée"]);
+    expect(f.said).to.deep.equal(["settled", "refused connexion fermée"]);
     expect(f.reconnects()).to.equal(1);
   });
 
   it("another refusal (500): said, the connection kept — only a 422 opens it again", async () => {
     const f = fake(true, async () => ({ status: 500, body: { error: "internal error" } }));
     await relay(f);
-    expect(f.said).to.deep.equal(["refused internal error"]);
+    expect(f.said).to.deep.equal(["settled", "refused internal error"]);
     expect(f.reconnects()).to.equal(0);
   });
 
   it("a right missing (403): the relay stops, said once (no server words beside), the shared connection left alone", async () => {
     const f = fake(true, async () => ({ status: 403, body: { error: "droit requis : midi:input" } }));
     await relay(f);
-    expect(f.said).to.deep.equal(["forbidden"]);
+    expect(f.said).to.deep.equal(["settled", "forbidden"]);
     expect(f.reconnects()).to.equal(0);
   });
 
   it("dropped past the flow's rate (429): told to the page (to send it again), never said as a refusal", async () => {
     const f = fake(true, async () => ({ status: 429, body: {} }));
     await relay(f);
-    expect(f.said).to.deep.equal(["dropped"]);
+    expect(f.said).to.deep.equal(["dropped"]); // not settled: the batcher sends it again
     expect(f.reconnects()).to.equal(0);
   });
 
   it("the connection gone meanwhile: nothing said; an error reply: said, the connection kept", async () => {
     const gone = fake(true, async () => Promise.reject(new Error("offline")));
     await relay(gone);
-    expect(gone.said).to.deep.equal([]);
+    expect(gone.said).to.deep.equal(["settled"]); // the link went: settled, nothing said
     const busy = fake(true, async () => Promise.reject(new Error("busy")));
     await relay(busy);
-    expect(busy.said).to.deep.equal(["refused busy"]);
+    expect(busy.said).to.deep.equal(["settled", "refused busy"]); // a request that failed
     expect(busy.reconnects()).to.equal(0);
   });
 });
@@ -447,6 +447,32 @@ describe("Web MIDI batches: one request per 15 ms window for the whole page", ()
     await Promise.resolve();
     expect(ended).to.equal(true);
     expect(h.messages().some((m) => m.bytes[0] === 0x90)).to.equal(false);
+  });
+
+  it("finish(): what the server drops is let go again exactly 8 times, whatever its answer time", async () => {
+    for (const later of [2, 80]) {
+      const h = harness(() => ({ later }));
+      h.b.push(PAD, [0xe0, 0, 127]);
+      h.advance(200);
+      const before = h.sent.length;
+      let ended = false;
+      void h.b.finish().then(() => (ended = true));
+      h.advance(5000);
+      await Promise.resolve();
+      expect(ended, `answers ${later} ms`).to.equal(true);
+      // its 8 tries (each a window that sends), after the flush when something waited for it (its 429 already back)
+      expect(h.sent.length - before, `answers ${later} ms`).to.equal(later === 2 ? 1 + 8 : 8);
+    }
+  });
+
+  it("a note and a Start dropped together both go again: the Start is not stale after its own batch's note", () => {
+    const h = harness((_b, n) => (n === 2 ? { later: 5 } : "ok"));
+    h.b.push(PAD, [0xb0, 7, 1]); // at once, opening the window
+    h.b.push(PAD, [0x90, 40, 100]); // a note: at once, with...
+    h.advance(1);
+    h.b.push(PAD, [0xfa]); // ...then a Start in its own batch: both dropped, the second's 429 first
+    h.advance(100);
+    expect(h.messages().filter((m) => m.bytes[0] === 0x90 || m.bytes[0] === 0xfa).map((m) => m.bytes[0])).to.include.members([0x90, 0xfa]);
   });
 
   it("finish(): bounded — the server dropping everything, it gives up after a few windows, then nothing goes", async () => {

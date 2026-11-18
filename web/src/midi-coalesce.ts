@@ -44,7 +44,10 @@ const keyOf = (m: RelayedMessage): string => {
   const kind = m.bytes[0]! & 0xf0;
   return kind === 0x80 || kind === 0x90 ? `${m.port}\u0000note:${m.bytes[0]! & 0x0f}:${m.bytes[1]}` : `${m.port}\u0000${m.bytes[0]}`;
 };
-/** How many windows the relay's last flush may be let go again while it ends (~120 ms): bounded, never a loop. */
+/**
+ * How many times, at most, the relay's last flush is let go again while it ends (each a window after its 429): bounded,
+ * never a loop, whatever the time the server takes to answer.
+ */
 const FINAL_TRIES = 8;
 
 /** The transport and the other system messages (Start, Continue, Stop, Song Position…): they concern their whole input. */
@@ -168,9 +171,13 @@ export class MidiBatcher {
     if (this.timer !== undefined) return; // after stop() nothing opens one: no push, and dropped() sends nothing again
     this.timer = this.later(() => {
       this.timer = undefined;
-      if (this.ending && ++this.ending.tries > FINAL_TRIES) this.giveUp();
-      // something went: a new window while it moves; else the page is at rest until its next message
-      else if (this.emit()) this.open();
+      // ending, past its tries: what still waits is let go with the relay (it stops once every request is answered);
+      // else something went: a new window while it moves, or the page is at rest until its next message
+      // (only a window that sends counts as a try)
+      if ((!this.ending || this.ending.tries < FINAL_TRIES) && this.emit()) {
+        if (this.ending) this.ending.tries++;
+        this.open();
+      }
       this.checkEnd();
     }, this.everyMs);
   }
@@ -223,14 +230,6 @@ export class MidiBatcher {
     done();
   }
 
-  /** Too many tries while ending: what still waits is let go (the inputs are said gone right after). */
-  private giveUp(): void {
-    this.discrete = [];
-    for (const c of this.controls.values()) {
-      c.turns = [];
-      c.last = undefined;
-    }
-  }
 
   /**
    * The server dropped a batch (its 429): each of its messages waits again for the next window, unless a newer one of its
@@ -265,7 +264,10 @@ export class MidiBatcher {
     if (again) this.open();
   }
 
-  /** Whether a value of this input waits in the window (a note that waits again went already: `portSent` has it). */
+  /**
+   * Whether a value of this input waits in the window. A note waiting again went already (`portSent` has it), so a note
+   * and a Start dropped together both go again: the Start is not stale after its own batch's note.
+   */
   private waits(port: string): boolean {
     return [...this.controls.values()].some((c) => c.last?.message.port === port);
   }
