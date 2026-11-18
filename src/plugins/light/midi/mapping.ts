@@ -73,6 +73,12 @@ export const MappingSchema = z.object({
     .prefault({}),
   followAftertouch: z.boolean().default(false),
   pickup: z.boolean().default(false),
+  /**
+   * A CC in « toggle » or « trigger »: a value equal to the previous one this mapping received, within `REPEAT_MS` of it, is
+   * ignored (a controller or Live sending the same value twice for one press; decision of 2026-11-18). Off by default: a
+   * pad sending CC 127 at each press toggles at each press. A real new press, after a pause or another value, goes.
+   */
+  ignoreRepeats: z.boolean().optional(),
   feedback: z.enum(["none", "note", "cc"]).default("note"),
   danger: z.boolean().default(false),
   notes: z.string().optional(),
@@ -114,7 +120,17 @@ function release(m: Mapping, out: MappingOutput): void {
   if (call) out.calls.push(call);
 }
 
+/**
+ * How close an equal value must follow the previous one to be a repetition (`ignoreRepeats`): a double send of one press
+ * (a controller's, Live's chase or a resend) comes within a few ms; no hand presses one pad twice in 150 ms (over six
+ * presses a second), so a real new press always goes.
+ */
+export const REPEAT_MS = 150;
+
 interface MappingState {
+  /** For `ignoreRepeats`: the last raw value this mapping received, and when. */
+  lastRaw?: number;
+  lastAt?: number;
   active: boolean;
   held: boolean;
   level: number;
@@ -137,6 +153,9 @@ const portOfKey = (key: string): string => key.slice(0, key.indexOf(KEY_SEP));
 export type ReleaseCause = "input" | "profile" | "mapping";
 
 export class MidiMapper {
+  /** `now`: the clock, in ms (injected: the repetitions of `ignoreRepeats` are told apart by time). */
+  constructor(private readonly now: () => number = () => Date.now()) {}
+
   private mappings: Mapping[] = [];
   private readonly state = new Map<string, MappingState>();
   /**
@@ -220,6 +239,15 @@ export class MidiMapper {
 
   list(): Mapping[] {
     return this.mappings;
+  }
+
+  /** Whether `raw` repeats the previous value within `REPEAT_MS` (the time of each value received kept, a repetition's too). */
+  private repeated(s: MappingState, raw: number): boolean {
+    const now = this.now();
+    const repeat = s.lastRaw === raw && s.lastAt !== undefined && now - s.lastAt < REPEAT_MS;
+    s.lastRaw = raw;
+    s.lastAt = now;
+    return repeat;
   }
 
   private st(id: string): MappingState {
@@ -306,6 +334,8 @@ export class MidiMapper {
             release(m, out);
           }
         }
+      } else if (m.input.type === "cc" && msg.type === "cc" && m.ignoreRepeats && (m.mode === "toggle" || m.mode === "trigger") && this.repeated(s, msg.value)) {
+        continue; // the same value again, too soon after: one press sent twice, not a new one
       } else if (m.input.type === "cc" || m.input.type === "pitchbend") {
         const raw = msg.type === "cc" ? msg.value : msg.type === "pitchbend" ? msg.value >> 7 : 0;
         const level = scaleValue(raw, m.scale);

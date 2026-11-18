@@ -24,6 +24,8 @@ export interface MappingDraft {
   mode: "trigger" | "latch" | "momentary" | "toggle";
   /** Raw value a CC (or a note's velocity) must exceed to answer (0..126); 0 = immediate. */
   threshold?: number;
+  /** A CC in « toggle » or « trigger »: an equal value within 150 ms of the one before is ignored (midi/mapping.ts). */
+  ignoreRepeats?: boolean;
   on: { command: string; args: Record<string, unknown> };
   off?: { command: string; args: Record<string, unknown> };
   levelArg?: string;

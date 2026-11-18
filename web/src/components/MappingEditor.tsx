@@ -49,6 +49,7 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
   const bendHintId = useId();
   const rangeHintId = useId();
   const bendLevelId = useId();
+  const repeatsHintId = useId();
   /** A wheel to a level: its upper half by default; a mapping saved that way (or by hand) reads back as it plays. */
   /** A wheel's button threshold, kept while a level action (threshold 0) is chosen. */
   const [buttonThreshold, setButtonThreshold] = useState<number | undefined>(undefined);
@@ -207,6 +208,15 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
         {/* what the chosen mode does, so the choice reads without the docs; a level action follows its control */}
         <p className="hint">{action === "position" ? t.positions.modeLockedHint : action === "colour" ? t.colours.modeHint : modeLocked ? t.modeLockedHint : action === "freeze" && m.mode === "trigger" ? t.motionLock.midiTriggerHint : t.modeHints[m.mode]}</p>
         {m.input.type !== "programchange" && <p className="hint">{t.thresholdHelp}</p>}
+        {/* a CC button in « toggle » or « trigger »: one press its controller (or Live) sends twice can count once */}
+        {m.input.type === "cc" && !modeLocked && (m.mode === "toggle" || m.mode === "trigger") && (
+          <label className="row" title={t.ignoreRepeatsHelp}>
+            <input type="checkbox" checked={m.ignoreRepeats ?? false} aria-describedby={repeatsHintId} onChange={(e) => setM({ ...m, ignoreRepeats: e.target.checked || undefined })} /> {t.ignoreRepeats}
+            <small className="hint" id={repeatsHintId}>
+              {t.ignoreRepeatsHelp}
+            </small>
+          </label>
+        )}
       </fieldset>
       <fieldset className="mapping-group">
         <legend>{t.midiDoSection}</legend>

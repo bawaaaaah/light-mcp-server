@@ -242,3 +242,52 @@ describe("note registry", () => {
     expect(() => r.pin("f", "songs", 36)).to.throw(NoteCollision);
   });
 });
+
+describe("ignoreRepeats: one press sent twice is one press (decision of 2026-11-18)", () => {
+  const harness = (mode: Mapping["mode"], ignoreRepeats?: boolean) => {
+    let now = 0;
+    const mapper = new MidiMapper(() => now);
+    mapper.setMappings([MappingSchema.parse({ id: "pad", input: { type: "cc", channel: 1, number: 20 }, mode, ...(ignoreRepeats === undefined ? {} : { ignoreRepeats }), on: { command: "look.go", args: { id: "hole" } }, off: { command: "look.stop", args: { id: "hole" } } })]);
+    const cc = (v: number, at: number) => {
+      now = at;
+      return mapper.handle(parseMidi([0xb0, 20, v])).calls.map((c) => c.command);
+    };
+    return { cc };
+  };
+
+  for (const mode of ["toggle", "trigger"] as const) {
+    it(`${mode}: an equal value within 150 ms is ignored; after a pause, or after another value, it goes`, () => {
+      const h = harness(mode, true);
+      expect(h.cc(127, 0)).to.have.length(1);
+      expect(h.cc(127, 40)).to.deep.equal([]); // the same press sent again
+      expect(h.cc(127, 140)).to.deep.equal([]); // still within 150 ms of the one before
+      expect(h.cc(127, 400)).to.have.length(1); // a new press after a pause
+      expect(h.cc(0, 410)).to.deep.equal(mode === "trigger" ? ["look.stop"] : []); // another value: handled as such
+      expect(h.cc(127, 420)).to.have.length(1); // after another value: a new press
+    });
+  }
+
+  it("off by default: a pad sending CC 127 at each press toggles at each press, however fast", () => {
+    const h = harness("toggle");
+    expect([h.cc(127, 0), h.cc(127, 40), h.cc(127, 80)].map((c) => c.length)).to.deep.equal([1, 1, 1]);
+  });
+
+  it("only for a CC in « toggle » or « trigger »: a latch to a level keeps every value, equal ones included", () => {
+    let now = 0;
+    const mapper = new MidiMapper(() => now);
+    mapper.setMappings([MappingSchema.parse({ id: "fader", input: { type: "cc", channel: 1, number: 20 }, mode: "latch", ignoreRepeats: true, on: { command: "group.level", args: { id: "front" } }, levelArg: "level" })]);
+    const cc = (v: number, at: number) => {
+      now = at;
+      return mapper.handle(parseMidi([0xb0, 20, v])).calls.length;
+    };
+    expect([cc(127, 0), cc(127, 40), cc(127, 80)]).to.deep.equal([1, 1, 1]);
+  });
+
+  it("a stream of the same value (Live's chase) stays ignored: each repetition's time counts, not only the first one's", () => {
+    const h = harness("toggle", true);
+    expect(h.cc(127, 0)).to.have.length(1);
+    expect(h.cc(127, 100)).to.deep.equal([]);
+    expect(h.cc(127, 200)).to.deep.equal([]); // 100 ms after the one before: still the same press
+    expect(h.cc(127, 400)).to.have.length(1); // a pause: a new press
+  });
+});
