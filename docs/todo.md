@@ -12,16 +12,10 @@ Le travail continue avec un autre modèle. Branche de travail : `fix/t2-look-res
 
 **Intégré et poussé** (tête `4ebb8a1`) : T43 à T49, T51, T52, T53, T55, le correctif du test instable de la Bibliothèque, et les restes des revues côté serveur et tests.
 
-**Branches** :
+**Branches de la reprise** : toutes deux intégrées.
 
 1. **T54 : intégré le 2026-11-18** (dix-neuf revues, fiche plus bas).
-2. **Restes des revues côté web, `fix/leftovers-web`** (worktree `agent-a44c9c7c016dfe552`, 27 commits sur `9257450`, dernier `1813e09`). **À rebaser** sur la branche de travail (T54 est intégré ; conflits attendus dans les fichiers MIDI du web et `WidgetMenu.tsx`). Contenu, toutes décisions dans `decisions.md` et la spec MIDI :
-   - éditeur MIDI : le pitch bend (molette) ; `midi.learn` apprend une molette ; focus de la Bibliothèque en fin de page ;
-   - molette : une action par poussée, réarmement par Start / Continue / SPP d'Ableton, tenues par port et par client, course « moitié haute » ou « course entière » pour un niveau, pas de retour LED par défaut ;
-   - réglage « relâcher / conserver » quand une entrée disparaît, par type d'entrée (relâcher par défaut) ;
-   - Web MIDI relayé par la connexion WebSocket (identité tirée du transport), un seul onglet relaie, un lot par fenêtre de 15 ms, découpé à 512, renvoi d'un message jeté tant qu'il n'est pas périmé ;
-   - case « ignorer les répétitions » par mapping CC (Bascule, Déclencher), comptée par contrôleur.
-   - **Reste à faire** : la dernière revue (sur `f990eb6` et `e6ddeb1`) a demandé dix points. Les commits `0e256c6` (répétitions par contrôleur, case retirée là où elle ne s'applique pas) et `1813e09` (le nouveau relais attend le `closed` de l'ancien) en traitent une partie ; l'agent s'est arrêté avant son compte rendu. À vérifier un par un : case « Ignorer les répétitions » sur une seule ligne avec son aide à côté et un nom accessible réduit au libellé (modèle `ZoneMenu.tsx:166-171`) ; horloge du `MidiMapper` en `performance.now()` ; `build()` retire `ignoreRepeats` quand il ne s'applique pas, et le serveur exclut `levelArg` ; phrase de la spec rangée dans la puce « CC et mode » ; `giveUp()` retiré ; borne de `FINAL_TRIES` juste (dans le commentaire ou le code) ; test qui fixe « une note et un Start jetés repartent tous les deux » ; tests de `settled` hors ligne et en échec, de la borne basse de `FINAL_TRIES`, de la limite exacte de 150 ms ; test `m.input.type === "cc"` redondant retiré (`mapping.ts:337`). Puis relecture, vérifications complètes, rebase, intégration.
+2. **Restes des revues côté web : intégrés le 2026-11-18** (éditeur MIDI pitch bend, molette, relais Web MIDI, « ignorer les répétitions » ; fiche « Restes des revues, côté web » plus bas, décisions dans `decisions.md` et la spec MIDI).
 
 **Trois choix techniques à faire valider par l'utilisateur** (écrits dans la spec MIDI, pas encore dans `decisions.md`) : regroupement des messages Web MIDI sur 15 ms ; limite de 400 lots/s (800 d'avance) par connexion pour `midi.in` ; arrêt du relais Web MIDI sur un 403 (droit manquant).
 
