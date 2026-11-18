@@ -6,7 +6,7 @@ import { actionOf, build, newMapping, type Action, type MappingDraft } from "./M
 import { isHex, SWATCHES } from "../color";
 import { useFloatingMenu } from "./menu";
 import { LookPeek } from "./LookPeek";
-import { RereadButton } from "./RereadButton";
+import { RereadButton, RereadStill, useReread } from "./RereadButton";
 import { SmoothingField, type Smoothing } from "./SmoothingField";
 import { targetListOf, type ButtonMode, type TargetList, type Widget, type WidgetKind } from "../dashboard-layout";
 import type { Texts } from "../i18n";
@@ -143,6 +143,7 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, ne
     // no target): the picker is gone too, the control after it gets the focus
     (selectRef.current ?? next?.current)?.focus();
   }, [read, next]);
+  const reread = useReread(busy, () => onRetry?.());
   const options = read ?? [];
   const missing = Boolean(list && value && !options.some((x) => x.id === value));
   if (!options.length && !missing && !why) return null;
@@ -165,14 +166,13 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, ne
       <span id={whyId}>{why}</span>
       {onRetry && (
         <RereadButton
-          busy={busy}
-          failing
-          onRetry={onRetry}
+          reread={reread}
           onFocus={() => (againFocused.current = true)}
           // the focus moved elsewhere; not when the window lost it (another app): the button keeps it there
           onBlur={(e) => document.activeElement !== e.currentTarget && (againFocused.current = false)}
         />
       )}
+      {onRetry && <RereadStill reread={reread} />}
     </small>
   );
   return field ? (

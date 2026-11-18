@@ -14,7 +14,7 @@ import { usePositions } from "../hooks/usePositions";
 import type { FixtureFunctions } from "../fader-functions";
 import { LiveStagePanel } from "../components/LiveStagePanel";
 import { AdvancedEditors } from "../components/AdvancedEditors";
-import { RereadButton } from "../components/RereadButton";
+import { RereadButton, RereadStill, useReread } from "../components/RereadButton";
 import { putInSet, WidgetMenu, type ExclusiveSet, type TargetLists, type TargetReadStates } from "../components/WidgetMenu";
 import type { LookDraft } from "../components/LookEditor";
 import type { KnowledgeIntentions } from "../intentions";
@@ -497,6 +497,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const alertShown = alert.length > 0;
   /** A read of a list the alert names is under way: its « Relire » waits for it. */
   const alertBusy = alert.some((line) => line.lists.some((l) => readStates[l]?.reading));
+  const alertReread = useReread(alertBusy, refresh);
   useEffect(() => {
     if (alertShown || !alertFocused.current) return;
     alertFocused.current = false;
@@ -621,7 +622,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             role="alert"
             onFocus={() => (alertFocused.current = true)}
             // the focus left the alert; not when the window lost it (another app)
-            onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && !e.currentTarget.contains(document.activeElement) && (alertFocused.current = false)}
+            onBlur={(e) => !e.currentTarget.contains(document.activeElement) && (alertFocused.current = false)}
           >
             <span className="read-error-lines">
               {alert.map((line) => (
@@ -630,7 +631,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
               <span>{t.readFailedHow}</span>
             </span>
             {/* every role reads the lists again here: the menus and the edit mode are not everyone's */}
-            <RereadButton busy={alertBusy} failing={alertShown} onRetry={refresh} />
+            <RereadButton reread={alertReread} />
             <button
               className="ghost"
               aria-label={t.close}
@@ -643,6 +644,8 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
             >
               ✕
             </button>
+            {/* a renewed failure: under the lines, the whole width */}
+            <RereadStill reread={alertReread} />
           </span>
         )}
       </section>

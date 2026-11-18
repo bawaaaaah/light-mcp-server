@@ -1386,6 +1386,16 @@ test("dashboards: the groups failing to read are said, and read again they make 
     await expect(picker).toBeDisabled();
     await expect(picker).toHaveAttribute("aria-busy", "true");
     await expect(why).toContainText("Groupes illisibles : groupes illisibles pour le test.");
+    // its red reads on the menu's panel: 4.5:1 at least
+    const contrast = await why.locator("span").first().evaluate((el) => {
+      const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).map(Number);
+      const lum = ([r, g, b]: number[]) => [r!, g!, b!].map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0);
+      let bg: Element | null = el;
+      while (bg && rgb(getComputedStyle(bg).backgroundColor)[3] === 0) bg = bg.parentElement;
+      const [light, dark] = [lum(rgb(getComputedStyle(el).color)), lum(rgb(getComputedStyle(bg ?? document.body).backgroundColor))].sort((x, y) => y - x);
+      return (light! + 0.05) / (dark! + 0.05);
+    });
+    expect(contrast).toBeGreaterThanOrEqual(4.5);
     // the description is the reason alone, not « Relire »
     await expect(picker).toHaveAttribute("aria-describedby", (await why.locator("span").first().getAttribute("id"))!);
     await expect(page.locator(`[id="${await picker.getAttribute("aria-describedby")}"]`)).toHaveText("Groupes illisibles : groupes illisibles pour le test.");
@@ -1755,29 +1765,125 @@ test("dashboards: the alert keeps its focus through the window's blur, and gives
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
 
-test("dashboards: the alert and its « Relire » fit a phone, in French and in English", async ({ page }) => {
+/** How many lines a button's label takes. */
+const labelLines = (button: Locator) =>
+  button.evaluate((b) => {
+    const range = document.createRange();
+    range.selectNodeContents(b);
+    return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size;
+  });
+/** The first word of an element's text cut across two lines, if any. */
+const cutWord = (element: Locator) =>
+  element.evaluate((el) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      let at = 0;
+      for (const part of (node.textContent ?? "").split(/(\s+)/)) {
+        if (part.trim()) {
+          const range = document.createRange();
+          range.setStart(node, at);
+          range.setEnd(node, at + part.length);
+          if (new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size > 1) return part;
+        }
+        at += part.length;
+      }
+    }
+    return null;
+  });
+
+test("dashboards: the alert, its « Relire » and a renewed failure fit a phone, in French and in English", async ({ page }) => {
   const errors = watchErrors(page);
-  await page.setViewportSize({ width: 390, height: 844 });
   await page.route("**/api/plugins/light/commands/group.list", (route) => route.fulfill({ status: 500, json: { ok: false, error: "server away" } }));
-  /** How many lines a button's label takes. */
-  const lines = (button: Locator) =>
-    button.evaluate((b) => {
-      const range = document.createRange();
-      range.selectNodeContents(b);
-      return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size;
-    });
+  const texts = {
+    fr: { lines: ["Groupes illisibles : server away.", "« Relire » les redemande au serveur."], button: "Relire", still: /^Relu à \d\d:\d\d:\d\d, toujours illisible\.$/ },
+    en: { lines: ["Groups could not be read: server away.", "“Read again” asks the server for them again."], button: "Read again", still: /^Read again at \d\d:\d\d:\d\d, still unreadable\.$/ },
+  };
   try {
     await login(page, "5678");
-    const alert = page.locator(".dashboards .bar .read-error");
-    await expect(alert.locator(".read-error-lines > span")).toHaveText(["Groupes illisibles : server away.", "« Relire » les redemande au serveur."]);
-    expect(await lines(alert.getByRole("button", { name: "Relire" }))).toBe(1);
-    await page.evaluate(() => localStorage.setItem("lang", "en"));
-    await page.reload();
-    await expect(alert.locator(".read-error-lines > span")).toHaveText(["Groups could not be read: server away.", "“Read again” asks the server for them again."]);
-    expect(await lines(alert.getByRole("button", { name: "Read again" }))).toBe(1);
+    for (const lang of ["fr", "en"] as const) {
+      for (const width of [390, 320]) {
+        await page.setViewportSize({ width, height: 844 });
+        await page.evaluate((l) => localStorage.setItem("lang", l), lang);
+        await page.reload();
+        const alert = page.locator(".dashboards .bar .read-error");
+        const t = texts[lang];
+        await expect(alert.locator(".read-error-lines > span")).toHaveText(t.lines);
+        const again = alert.getByRole("button", { name: t.button });
+        expect(await labelLines(again), `${lang} ${width}`).toBe(1);
+        // pressed, and failed again: said under the lines, the whole width, its words whole
+        await expect(again).toHaveAttribute("aria-busy", "false");
+        await again.click();
+        const still = alert.locator(".reread-still");
+        await expect(still).toHaveText(t.still);
+        expect(await labelLines(again), `${lang} ${width} after`).toBe(1);
+        expect(await cutWord(still), `${lang} ${width}`).toBeNull();
+        expect(await cutWord(alert.locator(".read-error-lines")), `${lang} ${width}`).toBeNull();
+        const [box, lines] = [await still.boundingBox(), await alert.locator(".read-error-lines").boundingBox()];
+        expect(box!.y).toBeGreaterThanOrEqual(lines!.y + lines!.height - 1); // under the lines
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      }
+    }
   } finally {
     await page.evaluate(() => localStorage.removeItem("lang"));
     await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: « Relire » is never squeezed nor broken in two, even with no room", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.route("**/api/plugins/light/commands/group.list", (route) => route.fulfill({ status: 500, json: { ok: false, error: "server away" } }));
+  try {
+    await login(page, "5678");
+    const again = page.locator(".dashboards .bar .read-error").getByRole("button", { name: "Relire" });
+    await expect(again).toBeVisible();
+    const whole = () => again.evaluate((b) => b.scrollWidth <= b.clientWidth);
+    // no room in the alert: the button keeps its width (flex: none), its label fits it
+    const narrow = await page.addStyleTag({ content: ".read-error { width: 120px !important; flex-wrap: nowrap !important; }" });
+    expect(await whole()).toBe(true);
+    expect(await labelLines(again)).toBe(1);
+    await narrow.evaluate((tag) => (tag as HTMLElement).remove());
+    // a width too small for it: its label stays on one line (white-space: nowrap)
+    await page.addStyleTag({ content: ".reread { max-width: 30px !important; }" });
+    expect(await labelLines(again)).toBe(1);
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: « Relire » says only the failures of its own presses, and not the last one's time while it reads again", async ({ page }) => {
+  const errors = watchErrors(page);
+  const a = await alertRelire(page);
+  const still = a.alert.locator(".reread-still");
+  try {
+    // its live region is there before its first message: emptied by its content, never hidden
+    await expect(still).toHaveAttribute("aria-live", "polite");
+    expect(await still.evaluate((el) => getComputedStyle(el).display)).not.toBe("none");
+    // a read it did not start (a command: the page reads its lists) fails: nothing said
+    await api(page, "look.stopall");
+    await expect(a.again).toHaveAttribute("aria-busy", "true");
+    await expect(a.again).toHaveAttribute("aria-busy", "false");
+    await expect(still).toHaveText("");
+    // pressed, failed again: said with the time
+    await page.keyboard.press("Enter");
+    await expect(still).toHaveText(/^Relu à \d\d:\d\d:\d\d, toujours illisible\.$/);
+    const said = await still.textContent();
+    // a later read it did not start fails too: the time said stays that of the press
+    await page.waitForTimeout(1100); // another second on the clock
+    await api(page, "look.stopall");
+    await expect(a.again).toHaveAttribute("aria-busy", "true");
+    await expect(a.again).toHaveAttribute("aria-busy", "false");
+    await expect(still).toHaveText(said!);
+    // pressed again: while it reads, the last time is not said
+    const letGo = a.hold();
+    await page.keyboard.press("Enter");
+    await expect(a.again).toHaveAttribute("aria-busy", "true");
+    await expect(still).toHaveText("");
+    letGo();
+    await expect(a.again).toHaveAttribute("aria-busy", "false"); // its read over before the route goes
+  } finally {
+    await a.done();
   }
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });

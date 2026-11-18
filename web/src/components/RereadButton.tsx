@@ -2,23 +2,22 @@ import { useEffect, useRef, useState, type FocusEvent, type ReactElement } from 
 import { useT } from "../i18n-context";
 
 const clock = (d: Date): string => [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":");
+const NOW = (): Date => new Date();
+
+/** « Relire » and what it says, shared by its button and its message, which its owner places apart. */
+export interface Reread {
+  busy: boolean;
+  press: () => void;
+  /** « Relu à 21:04:12, toujours illisible. », or empty. */
+  still: string;
+}
 
 /**
- * « Relire »: reads a list (or the Live's lists) that could not be read again. While that read is under way it is
- * busy and does nothing more (`aria-disabled`, never `disabled`: the focus stays on it); a press whose read fails again
- * says so beside it, with the time (« Relu à 21:04:12, toujours illisible »), announced without the whole alert again.
- * The time is injectable (`now`).
+ * « Relire »: reads a list (or the Live's lists) that could not be read again. While a read is under way it is busy and
+ * a press does nothing more; a press whose read fails again (the button still there once the read is over) is said with
+ * the time, without the whole alert again. A read it did not start says nothing. The time is injectable (`now`).
  */
-export function RereadButton({ busy, failing, onRetry, onFocus, onBlur, now = () => new Date() }: {
-  /** A read is under way. */
-  busy: boolean;
-  /** What it reads again is still not read. */
-  failing: boolean;
-  onRetry: () => void;
-  onFocus?: (e: FocusEvent<HTMLButtonElement>) => void;
-  onBlur?: (e: FocusEvent<HTMLButtonElement>) => void;
-  now?: () => Date;
-}): ReactElement {
+export function useReread(busy: boolean, onRetry: () => void, now: () => Date = NOW): Reread {
   const t = useT();
   /** Pressed, and its read not over yet. */
   const pressed = useRef(false);
@@ -27,31 +26,37 @@ export function RereadButton({ busy, failing, onRetry, onFocus, onBlur, now = ()
   useEffect(() => {
     if (wasBusy.current && !busy && pressed.current) {
       pressed.current = false;
-      if (failing) setStill(t.rereadStill.replace("{time}", () => clock(now())));
+      setStill(t.rereadStill.replace("{time}", () => clock(now())));
     }
     wasBusy.current = busy;
-  }, [busy, failing, t, now]);
+  }, [busy, t, now]);
+  return {
+    busy,
+    still,
+    press: () => {
+      if (busy) return;
+      pressed.current = true;
+      setStill(""); // a read again: the last one's time is not said any more
+      onRetry();
+    },
+  };
+}
+
+/** The button: `aria-disabled` and `aria-busy` while a read is under way, never `disabled` (the focus stays on it). */
+export function RereadButton({ reread, onFocus, onBlur }: { reread: Reread; onFocus?: (e: FocusEvent<HTMLButtonElement>) => void; onBlur?: (e: FocusEvent<HTMLButtonElement>) => void }): ReactElement {
+  const t = useT();
   return (
-    <>
-      <button
-        type="button"
-        className="reread"
-        aria-disabled={busy}
-        aria-busy={busy}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        onClick={() => {
-          if (busy) return;
-          pressed.current = true;
-          setStill("");
-          onRetry();
-        }}
-      >
-        {t.readAgain}
-      </button>
-      <span className="reread-still" aria-live="polite">
-        {still}
-      </span>
-    </>
+    <button type="button" className="reread" aria-disabled={reread.busy} aria-busy={reread.busy} onFocus={onFocus} onBlur={onBlur} onClick={reread.press}>
+      {t.readAgain}
+    </button>
+  );
+}
+
+/** Its message: a live region there from the start (emptied by its content, never hidden), on a line of its own. */
+export function RereadStill({ reread }: { reread: Reread }): ReactElement {
+  return (
+    <span className="reread-still" aria-live="polite">
+      {reread.still}
+    </span>
   );
 }

@@ -7,6 +7,8 @@
   --accent: #ffb454;
   --on: #2fbf71;
   --danger: #e5484d;
+  /* the danger red as text on the panels (--panel): 4.5:1 at least */
+  --danger-text: #ea5a5f;
   --warn: #f0b429;
   /* motion layers on the pad (T25): one hue each, readable on the dark panels */
   --layer-manual: #f2c14e;
@@ -102,25 +104,33 @@ h2 {
   cursor: default;
   overflow-wrap: anywhere;
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.3em;
+  column-gap: 0.3em;
 }
 .read-error button,
 .read-why button {
   min-width: 44px;
   min-height: 44px;
+}
+/* « Relire » (components/RereadButton.tsx): never squeezed, never broken in two, in the text's colour */
+.reread {
   flex: none;
   white-space: nowrap;
   color: var(--text);
 }
-/* « Relire » pressed and failed again: said beside it (components/RereadButton.tsx) */
-.reread-still:empty {
-  display: none;
+/* « Relire » pressed and failed again: on a line of its own, the whole width, words kept whole; there, empty, from the
+   start (a live region must exist before what it says) */
+.reread-still {
+  flex-basis: 100%;
+  overflow-wrap: normal;
 }
 /* one line per message */
 .read-error-lines {
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
 }
 /* a widget's target picker whose list could not be read: why, and « Relire » (components/WidgetMenu.tsx) */
 .read-why {
@@ -128,7 +138,7 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4em;
-  color: var(--danger);
+  color: var(--danger-text);
   overflow-wrap: anywhere;
 }
 .warn {
