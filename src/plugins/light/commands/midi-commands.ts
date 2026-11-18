@@ -76,7 +76,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     name: "midi.status",
     title: "État MIDI",
     titleEn: "MIDI status",
-    description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output), how many Web MIDI requests (batches, each up to 512 messages) were dropped past their rate (webMidiDropped), and how long Node keeps a message waiting (node: p50, p99 and max of the last 10 s, the worst stall of the last hour, in ms).",
+    description: `MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output), how many Web MIDI requests (batches, each up to ${MAX_BATCH} messages) were dropped past their rate (webMidiDropped), and how long Node keeps a message waiting (node: p50, p99 and max of the last 10 s, the worst stall of the last hour, in ms).`,
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "live"],

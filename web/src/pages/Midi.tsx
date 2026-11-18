@@ -224,10 +224,14 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waitin
       (fn, ms) => setTimeout(fn, ms),
       (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     );
+    /** Inputs unplugged: what waits goes first (a rest included), then nothing of theirs again, then their « closed ». */
     const closed = (names: string[]) => {
       if (!names.length) return;
-      batcher.flush(); // what waits goes first, a rest included: never lost behind the input's « closed »
-      for (const name of names) relayOver(control, "midi.web.closed", { port: webMidiPort(name) }, outcome);
+      batcher.flush();
+      for (const name of names) {
+        batcher.forgetPort(webMidiPort(name));
+        relayOver(control, "midi.web.closed", { port: webMidiPort(name) }, outcome);
+      }
     };
     const bind = () => {
       if (!access) return;
@@ -281,7 +285,11 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waitin
       setWaiting(false);
       access?.inputs.forEach((input) => (input.onmidimessage = null));
       if (access) access.onstatechange = null;
-      closed(relayed); // relayed no more (Web MIDI off, the page left)
+      // relayed no more (Web MIDI off, the page left): what waits goes, then the relay stops (a late 429 sends nothing
+      // again), then the inputs are said gone
+      batcher.flush();
+      batcher.stop();
+      for (const name of relayed) relayOver(control, "midi.web.closed", { port: webMidiPort(name) }, outcome);
       release();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `t` only words the error: a language change must not close and reopen the MIDI access

@@ -682,7 +682,7 @@ export class LightPlugin implements McpPlugin {
     return ["commands/midi.in"];
   }
 
-  /** A Web MIDI message dropped (its rate exceeded): counted, and said on the MIDI page's monitor. */
+  /** A Web MIDI batch dropped (its rate exceeded): counted, and said on the MIDI page's monitor. */
   liveRequestDropped(): void {
     this.midi.dropped();
   }

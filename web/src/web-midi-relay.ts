@@ -22,7 +22,7 @@ export interface RelayOutcome {
 /** The refusal the server gives a connection already said closed: the only one a new connection cures. */
 const CLOSED = 422;
 const FORBIDDEN = 403;
-/** Dropped by the server past the flow's rate: counted and said there; given to `outcome.dropped` (the batcher sends it again once). */
+/** Dropped by the server past the flow's rate: counted and said there; given to `outcome.dropped` (the batcher sends it again, a window later, until it is taken — unless a newer message made it stale). */
 const DROPPED = 429;
 
 /**

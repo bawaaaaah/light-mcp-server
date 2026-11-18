@@ -6758,7 +6758,9 @@ async function fakeWebMidi(page: Page): Promise<(bytes: number[]) => Promise<voi
     const g = globalThis as unknown as { fakePad: typeof pad; statusSeen: string[] };
     g.fakePad = pad;
     g.statusSeen = [];
-    (navigator as unknown as { requestMIDIAccess: () => Promise<unknown> }).requestMIDIAccess = async () => ({ inputs: new Map([["pad", pad]]), outputs: new Map(), onstatechange: null });
+    const access = { inputs: new Map([["pad", pad]]), outputs: new Map(), onstatechange: null as null | (() => void) };
+    (globalThis as unknown as { fakeAccess: typeof access }).fakeAccess = access;
+    (navigator as unknown as { requestMIDIAccess: () => Promise<unknown> }).requestMIDIAccess = async () => access;
     const dom = globalThis as unknown as { document: { querySelectorAll(s: string): Iterable<{ textContent: string | null }> }; MutationObserver: new (cb: () => void) => { observe(target: unknown, o: object): void } };
     new dom.MutationObserver(() => {
       for (const el of dom.document.querySelectorAll("[role=status]")) g.statusSeen.push(el.textContent ?? "");
@@ -6831,11 +6833,11 @@ test("Web MIDI: a right missing (403) stops the relay, says how to resume, and l
 
 test("Web MIDI: a batch dropped by the server (429) goes again at the next window, once taken never again", async ({ page }) => {
   const play = await fakeWebMidi(page);
-  const bodies: { messages?: { bytes: number[] }[]; resend?: boolean }[] = [];
+  const bodies: { messages?: { bytes: number[] }[] }[] = [];
   await page.routeWebSocket(/\/api\/ws/, (ws) => {
     const server = ws.connectToServer();
     ws.onMessage((message) => {
-      const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string; body?: { messages?: { bytes: number[] }[]; resend?: boolean } };
+      const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string; body?: { messages?: { bytes: number[] }[] } };
       if (msg.t === "req" && msg.path?.endsWith("/midi.in")) {
         bodies.push(msg.body ?? {});
         if (bodies.length === 1) return ws.send(JSON.stringify({ t: "res", id: msg.id, status: 429, body: { error: "dropped" } }));
@@ -6853,6 +6855,101 @@ test("Web MIDI: a batch dropped by the server (429) goes again at the next windo
   await page.waitForTimeout(200);
   expect(bodies).toHaveLength(2); // once
   await page.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).uncheck();
+});
+
+test("Web MIDI: a push dropped late after Web MIDI is switched off is not sent again", async ({ page }) => {
+  const play = await fakeWebMidi(page);
+  const order: string[] = [];
+  let n = 0;
+  await page.routeWebSocket(/\/api\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string; body?: { messages?: { bytes: number[] }[] } };
+      if (msg.t === "req" && msg.path?.endsWith("/midi.in")) {
+        n++;
+        for (const m of msg.body?.messages ?? []) order.push(`in ${m.bytes.join(",")}`);
+        // the first one dropped, its 429 coming once Web MIDI is off
+        if (n === 1) return void setTimeout(() => ws.send(JSON.stringify({ t: "res", id: msg.id, status: 429, body: { error: "dropped" } })), 150);
+      }
+      if (msg.t === "req" && msg.path?.endsWith("/midi.web.closed")) order.push("closed");
+      server.send(message);
+    });
+  });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  const relay = page.getByRole("checkbox", { name: /MIDI de ce navigateur/ });
+  await relay.check();
+  await expect(page.locator(".midi .bar span[role=status]").first()).toHaveText("Pad");
+  await play([0xe0, 0, 127]);
+  await relay.uncheck();
+  await page.waitForTimeout(800);
+  expect(order).toEqual(["in 224,0,127", "closed"]); // never the push again after « closed »: nothing would release it
+});
+
+test("Web MIDI: an input unplugged while its push is dropped: never sent again after its « closed »", async ({ page }) => {
+  const play = await fakeWebMidi(page);
+  const order: string[] = [];
+  let n = 0;
+  await page.routeWebSocket(/\/api\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string; body?: { messages?: { bytes: number[] }[] } };
+      if (msg.t === "req" && msg.path?.endsWith("/midi.in")) {
+        n++;
+        for (const m of msg.body?.messages ?? []) order.push(`in ${m.bytes.join(",")}`);
+        if (n === 1) return void setTimeout(() => ws.send(JSON.stringify({ t: "res", id: msg.id, status: 429, body: { error: "dropped" } })), 150);
+      }
+      if (msg.t === "req" && msg.path?.endsWith("/midi.web.closed")) order.push("closed");
+      server.send(message);
+    });
+  });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  const relay = page.getByRole("checkbox", { name: /MIDI de ce navigateur/ });
+  await relay.check();
+  await expect(page.locator(".midi .bar span[role=status]").first()).toHaveText("Pad");
+  await play([0xe0, 0, 127]);
+  await page.evaluate(() => {
+    // the device unplugged: the browser says its inputs changed
+    const access = (globalThis as unknown as { fakeAccess: { inputs: Map<string, unknown>; onstatechange: null | (() => void) } }).fakeAccess;
+    access.inputs.delete("pad");
+    access.onstatechange?.();
+  });
+  await page.waitForTimeout(800); // its 429 came meanwhile
+  expect(order).toEqual(["in 224,0,127", "closed"]);
+  await relay.uncheck();
+});
+
+test("Web MIDI: the MIDI page left while the server drops everything: no request after its « closed »", async ({ page }) => {
+  const play = await fakeWebMidi(page);
+  const at: number[] = [];
+  let closedAt = 0;
+  await page.routeWebSocket(/\/api\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((message) => {
+      const msg = JSON.parse(String(message)) as { t: string; id?: number; path?: string };
+      if (msg.t === "req" && msg.path?.endsWith("/midi.in")) {
+        at.push(Date.now());
+        return void ws.send(JSON.stringify({ t: "res", id: msg.id, status: 429, body: { error: "dropped" } }));
+      }
+      if (msg.t === "req" && msg.path?.endsWith("/midi.web.closed")) closedAt = Date.now();
+      server.send(message);
+    });
+  });
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  const relay = page.getByRole("checkbox", { name: /MIDI de ce navigateur/ });
+  await relay.check();
+  await expect(page.locator(".midi .bar span[role=status]").first()).toHaveText("Pad");
+  await play([0xe0, 0, 127]);
+  await page.waitForTimeout(300);
+  expect(at.length).toBeGreaterThan(5); // sent again, one window at a time, while the server drops
+  await page.locator("nav.pages button", { hasText: "Live" }).click(); // the MIDI page left
+  await page.waitForTimeout(1500);
+  expect(closedAt).toBeGreaterThan(0);
+  expect(at.filter((t) => t > closedAt)).toEqual([]);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  await relay.uncheck();
 });
 
 test("Web MIDI: an input switched off mid-gesture sends its last value first: a rest is never lost", async ({ page }) => {

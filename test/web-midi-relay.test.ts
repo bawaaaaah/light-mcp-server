@@ -142,7 +142,7 @@ describe("Web MIDI batches: one request per 15 ms window for the whole page", ()
       h.advance(1);
     }
     h.advance(30);
-    expect(h.messages().map((m) => m.bytes[2])).to.deep.equal([64, 100, 30, 100, 64]);
+    expect(h.messages().map((m) => m.bytes[2])).to.deep.equal([64, 80, 100, 30, 100, 64]); // its first value in the window too
   });
 
   for (const n of [8, 16]) {
@@ -199,8 +199,7 @@ describe("Web MIDI batches: one request per 15 ms window for the whole page", ()
     for (let k = 1; k < h.sent.length; k++) expect(h.sent[k]!.at - h.sent[k - 1]!.at).to.be.at.least(15);
     expect(h.messages().every((m) => m.bytes[2] === 127)).to.equal(true);
     down = false;
-    h.advance(30);
-    h.advance(300);
+    h.advance(330);
     expect(h.sent.length).to.equal(tries + 1); // taken: nothing more
   });
 
@@ -301,13 +300,30 @@ describe("Web MIDI batches: one request per 15 ms window for the whole page", ()
     expect(got).to.deep.equal([64]);
   });
 
-  it("a value equal to the last one sent is not sent again", () => {
+  it("a value equal to the one sent before still goes, each time: a CC-127 pad pressed three times, a wheel at 127 after a Start", () => {
     const h = harness();
+    for (let k = 0; k < 3; k++) {
+      h.b.push(PAD, [0xb0, 20, 127]); // a pad that never sends 0 (a toggle flips at each press)
+      h.advance(1000);
+    }
+    expect(h.messages().filter((m) => m.bytes[0] === 0xb0)).to.have.length(3);
+    h.b.push(PAD, [0xe0, 0, 127]);
+    h.advance(1000);
+    h.b.push(PAD, [0xfa]); // Live's Start: the wheel rearmed
+    h.b.push(PAD, [0xe0, 0, 127]); // Live sends its value again: it must go
+    h.advance(30);
+    expect(h.messages().slice(-3).map((m) => m.bytes)).to.deep.equal([[0xe0, 0, 127], [0xfa], [0xe0, 0, 127]]);
+  });
+
+  it("a repetition within one window is merged", () => {
+    const h = harness();
+    h.b.push(PAD, [0xb0, 7, 10]); // at once
+    h.b.push(PAD, [0xb0, 7, 20]); // the window's first
     h.b.push(PAD, [0xb0, 7, 64]);
-    h.advance(20);
     h.b.push(PAD, [0xb0, 7, 64]);
-    h.advance(20);
-    expect(h.sent).to.have.length(1);
+    h.b.push(PAD, [0xb0, 7, 64]);
+    h.advance(30);
+    expect(h.messages().map((m) => m.bytes[2])).to.deep.equal([10, 20, 64]);
   });
 
   it("reads each kind's own value: a channel aftertouch's byte 1, a pitch bend's 14 bits, a poly aftertouch per key", () => {
@@ -316,14 +332,81 @@ describe("Web MIDI batches: one request per 15 ms window for the whole page", ()
     h.b.push(PAD, [0xd0, 90]);
     h.b.push(PAD, [0xd0, 10]); // turned at 90
     h.b.push(PAD, [0xe0, 0, 64]);
-    h.advance(20);
-    h.b.push(PAD, [0xe0, 5, 64]); // the same top 7 bits, another value
+    h.b.push(PAD, [0xe0, 5, 64]); // the same top 7 bits, another value, in the same window: not merged
     h.b.push(PAD, [0xa0, 40, 10]);
     h.b.push(PAD, [0xa0, 41, 20]); // another key: its own control
     h.b.push(PAD, [0xa0, 40, 30]);
     h.b.push(PAD, [0xa0, 41, 40]);
     h.advance(20);
     expect(h.messages().map((m) => m.bytes)).to.deep.equal([[0xd0, 10], [0xd0, 90], [0xd0, 10], [0xe0, 0, 64], [0xe0, 5, 64], [0xa0, 40, 10], [0xa0, 41, 20], [0xa0, 40, 30], [0xa0, 41, 40]]);
+  });
+
+  it("a 429 that comes after the relay stopped sends nothing; the page left while the server drops: nothing after", () => {
+    const late = harness((_b, n) => (n === 1 ? { later: 10 } : "ok"));
+    late.b.push(PAD, [0xe0, 0, 127]); // its 429 comes 10 ms later
+    late.advance(5);
+    late.b.flush();
+    late.b.stop(); // Web MIDI off: the relay ends before the inputs are said gone
+    late.advance(500);
+    expect(late.sent).to.have.length(1);
+    const down = harness(() => ({ later: 2 }));
+    down.b.push(PAD, [0xe0, 0, 127]);
+    down.advance(100);
+    down.b.flush();
+    down.b.stop(); // the page left
+    const before = down.sent.length;
+    down.advance(2000);
+    expect(down.sent.length).to.equal(before);
+    down.b.push(PAD, [0xe0, 0, 64]); // nothing goes any more
+    expect(down.sent.length).to.equal(before);
+  });
+
+  it("an input unplugged: what waits of it is forgotten, a later 429 of it sends nothing again; the other inputs go on", () => {
+    const h = harness((_b, n) => (n === 1 ? { later: 10 } : "ok"));
+    h.b.push(PAD, [0xe0, 0, 127]); // its 429 comes 10 ms later
+    h.b.push(KEYS, [0xb0, 7, 1]);
+    h.advance(2);
+    h.b.push(KEYS, [0xb0, 7, 2]);
+    h.b.push(PAD, [0xe0, 0, 100]); // waits in the window
+    h.b.forgetPort(PAD); // the pad unplugged
+    h.advance(100);
+    expect(h.messages().filter((m) => m.port === PAD)).to.have.length(1);
+    expect(h.messages().filter((m) => m.port === KEYS).at(-1)!.bytes).to.deep.equal([0xb0, 7, 2]);
+    h.advance(100);
+    h.b.push(PAD, [0xe0, 0, 64]); // plugged in again: it goes, and its drops are sent again
+    expect(h.messages().at(-1)).to.deep.equal({ port: PAD, bytes: [0xe0, 0, 64] });
+  });
+
+  it("an input plugged in again after being forgotten: what the server drops of it goes again", () => {
+    const h = harness((b) => (b.messages.some((m) => m.bytes[2] === 64) && h.sent.filter((x) => x.batch.messages.some((m) => m.bytes[2] === 64)).length === 1 ? "dropped" : "ok"));
+    h.b.push(PAD, [0xe0, 0, 127]);
+    h.b.forgetPort(PAD);
+    h.advance(100);
+    h.b.push(PAD, [0xe0, 0, 64]); // plugged in again; this one dropped
+    h.advance(100);
+    expect(h.messages().filter((m) => m.bytes[2] === 64)).to.have.length(2);
+  });
+
+  it("a Start dropped late is stale after a newer message of its input (a wheel, a Stop): never sent again after them", () => {
+    for (const later of [20, 5]) {
+      // its 429 comes after the wheel went (20 ms), or while the wheel still waits in the window (5 ms)
+      const wheel = harness((_b, n) => (n === 1 ? { later } : "ok"));
+      wheel.b.push(PAD, [0xfa]);
+      wheel.advance(2);
+      wheel.b.push(PAD, [0xe0, 0, 100]); // the wheel pushed after it
+      wheel.advance(100);
+      expect(wheel.messages().map((m) => m.bytes[0]), `429 after ${later} ms`).to.deep.equal([0xfa, 0xe0]);
+    }
+    const stop = harness((_b, n) => (n === 1 ? { later: 20 } : "ok"));
+    stop.b.push(PAD, [0xfa]);
+    stop.advance(5);
+    stop.b.push(PAD, [0xfc]); // a Stop after it
+    stop.advance(100);
+    expect(stop.messages().map((m) => m.bytes[0])).to.deep.equal([0xfa, 0xfc]);
+    const alone = harness((_b, n) => (n === 1 ? { later: 20 } : "ok"));
+    alone.b.push(PAD, [0xfa]); // nothing newer: it goes again
+    alone.advance(100);
+    expect(alone.messages().map((m) => m.bytes[0])).to.deep.equal([0xfa, 0xfa]);
   });
 
   it("more than 512 messages in a window: cut into requests of 512 at most, sent in order, the rest last", () => {
