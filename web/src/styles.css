@@ -122,7 +122,6 @@ h2 {
 /* « Relire » pressed and failed again: on a line of its own, the whole width; there, empty, from the start (a live
    region must exist before what it says) */
 .reread-still {
-  flex: none;
   width: 0;
   min-width: 100%; /* the whole width of the alert as it is, never widening it */
 }
@@ -140,6 +139,10 @@ h2 {
   column-gap: 0.4em;
   color: var(--danger-text);
   overflow-wrap: anywhere;
+}
+/* its message's line is kept even empty: « Relire » does not move when it comes */
+.read-why .reread-still {
+  min-height: 1lh;
 }
 .warn {
   color: var(--warn);
@@ -2175,12 +2178,12 @@ table.rules td {
   display: grid;
   gap: 0.15em;
 }
-/* the look on the stage plan: room for it */
 /* the menu's errors and « Retirer du dashboard », on its panel: the lighter danger red (4.5:1) */
 .widget-menu .error,
 .widget-menu button.danger {
   color: var(--danger-text);
 }
+/* the look on the stage plan: room for it */
 .widget-menu.wide {
   width: min(600px, calc(100vw - 16px));
 }

@@ -248,6 +248,8 @@ export function WidgetMenu({
   /** The look's preview played on the stage: the menu widens for it. */
   const [wide, setWide] = useState(false);
   const [error, setError] = useState("");
+  /** The smoothing's own read failed: said until it is read (again, once the page's lists are). */
+  const [readError, setReadError] = useState("");
   const action = midiAction(widget);
   const advanced = widget.target ? advancedOf(widget.kind) : undefined;
   const loadMappings = () => void cmd<MappingDraft[]>("midi.mapping.list").then(setMappings, () => undefined);
@@ -289,7 +291,16 @@ export function WidgetMenu({
         <input ref={labelRef} value={label} placeholder={targets.find((x) => x.id === widget.target)?.name ?? ""} onChange={(e) => setLabel(e.target.value)} onBlur={() => label !== (widget.label ?? "") && onChange({ label: label || undefined })} />
       </label>
       {widget.kind === "grand-master" && <GrandMasterSmoothing onError={setError} />}
-      {(widget.kind === "group-fader" || widget.kind === "channel-fader") && widget.target && <TargetSmoothing key={widget.target} kind={widget.kind === "group-fader" ? "group" : "fader"} id={widget.target} onError={setError} />}
+      {(widget.kind === "group-fader" || widget.kind === "channel-fader") && widget.target && (
+        // read again once the page's list is (« Relire »): keyed by whether it is read
+        <TargetSmoothing
+          key={`${widget.target}:${(widget.kind === "group-fader" ? lists.groups : lists.faders) !== null}`}
+          kind={widget.kind === "group-fader" ? "group" : "fader"}
+          id={widget.target}
+          onError={setError}
+          onReadError={setReadError}
+        />
+      )}
       {widget.kind !== "preview" && (
         <div className="field">
           <span>{t.widgetColor}</span>
@@ -417,7 +428,7 @@ export function WidgetMenu({
           </button>
         </div>
       )}
-      {error && <p className="error">{error}</p>}
+      {(error || readError) && <p className="error">{error || readError}</p>}
       {/* the whole editor of what it drives, where the menu stops: members, channels, timing… */}
       {advanced && onAdvanced && (
         <button className="advanced" title={t.advancedHelp} onClick={() => onAdvanced(advanced, widget.target!)}>
@@ -453,10 +464,18 @@ function GrandMasterSmoothing({ onError }: { onError: (e: string) => void }) {
 }
 
 /** A DCA's or a channel fader's smoothing, saved at once on the object it drives. */
-function TargetSmoothing({ kind, id, onError }: { kind: "group" | "fader"; id: string; onError: (e: string) => void }) {
+function TargetSmoothing({ kind, id, onError, onReadError }: { kind: "group" | "fader"; id: string; onError: (e: string) => void; onReadError: (e: string) => void }) {
   type Target = { id: string; smoothing?: Smoothing; master?: { level: number; mute: boolean; smoothing?: Smoothing } };
   const [target, setTarget] = useState<Target | null>(null);
-  useEffect(() => void cmd<Target[]>(`${kind}.list`).then((l) => setTarget(l.find((x) => x.id === id) ?? null), (e: Error) => onError(e.message)), [kind, id, onError]);
+  // its read failing is said until a read passes (not a write's error: those stay the menu's)
+  useEffect(
+    () =>
+      void cmd<Target[]>(`${kind}.list`).then(
+        (l) => (setTarget(l.find((x) => x.id === id) ?? null), onReadError("")),
+        (e: Error) => onReadError(e.message),
+      ),
+    [kind, id, onReadError],
+  );
   // a group without a master has no fader to smooth
   if (!target || (kind === "group" && !target.master)) return null;
   return (

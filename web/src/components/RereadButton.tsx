@@ -23,19 +23,20 @@ export function useReread(busy: boolean, onRetry: () => void, now: () => Date = 
   const t = useT();
   /** Pressed, and its read not over yet. */
   const pressed = useRef(false);
-  const [still, setStill] = useState("");
+  /** When a press failed again: its message is written at each render, in the language of the moment. */
+  const [failedAt, setFailedAt] = useState<Date | null>(null);
   useEffect(() => {
     if (busy || !pressed.current) return;
     pressed.current = false;
-    setStill(t.rereadStill.replace("{time}", () => clock(now())));
-  }, [busy, t, now]);
+    setFailedAt(now());
+  }, [busy, now]);
   return {
     busy,
-    still,
+    still: failedAt ? t.rereadStill.replace("{time}", () => clock(failedAt)) : "",
     press: () => {
       if (busy) return;
       pressed.current = true;
-      setStill(""); // a read again: the last one's time is not said any more
+      setFailedAt(null); // a read again: the last one's time is not said any more
       onRetry();
     },
   };

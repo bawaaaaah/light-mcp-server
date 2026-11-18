@@ -1733,8 +1733,9 @@ test("dashboards: an alert closed by ✕ while « Relire » reads says nothing o
     await expect(a.again).toHaveAttribute("aria-busy", "true");
     await a.alert.getByRole("button", { name: "Fermer" }).click();
     await expect(a.alert).toHaveCount(0);
+    const before = a.reads();
     letGo(); // its read fails, the alert closed
-    await page.waitForTimeout(1500);
+    await expect.poll(a.reads).toBeGreaterThan(before); // and its retry
     a.say("autre panne pour le test");
     await api(page, "look.stopall");
     await expect(a.alert).toContainText("autre panne pour le test");
@@ -1773,10 +1774,11 @@ test("dashboards: « Relire » in a widget's menu says a renewed failure under t
   const errors = watchErrors(page);
   const r = await relireOpen(page);
   try {
-    // nothing said yet: no empty row under the reason and its button
-    const why = page.locator(".widget-menu .read-why");
-    const [whyBox, againBox] = [await why.boundingBox(), await r.again.boundingBox()];
-    expect(whyBox!.y + whyBox!.height).toBeLessThanOrEqual(againBox!.y + againBox!.height + 1);
+    const before = await r.again.boundingBox();
+    // the smoothing's read failed too: said in the menu's error, in a red that reads on its panel
+    const error = page.locator(".widget-menu p.error");
+    await expect(error).toBeVisible();
+    expect(await contrastOf(error)).toBeGreaterThanOrEqual(4.5);
     await r.again.focus();
     await page.keyboard.press("Enter"); // failed again
     await expect(r.picker).toHaveAttribute("aria-busy", "true");
@@ -1786,9 +1788,78 @@ test("dashboards: « Relire » in a widget's menu says a renewed failure under t
     await expect(still).toHaveText(/^Relu à \d\d:\d\d:\d\d, toujours illisible\.$/);
     const [reason, box] = [await page.locator(".widget-menu .read-why > span").first().boundingBox(), await still.boundingBox()];
     expect(box!.y).toBeGreaterThanOrEqual(reason!.y + reason!.height - 1); // under the reason
+    expect(await r.again.boundingBox()).toEqual(before); // its line was kept: « Relire » did not move
     await page.keyboard.press("Escape");
   } finally {
     await r.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: the menu's smoothing is read again with « Relire », and its error goes", async ({ page }) => {
+  const errors = watchErrors(page);
+  const r = await relireOpen(page);
+  try {
+    const error = page.locator(".widget-menu p.error");
+    await expect(error).toContainText("groupes illisibles pour le test"); // the smoothing's read failed too
+    await expect(page.locator(".widget-menu").getByLabel("Lissage")).toHaveCount(0);
+    r.fail(false);
+    await r.again.click(); // read this time
+    await expect(r.picker).toBeEnabled();
+    await expect(error).toHaveCount(0);
+    await expect(page.locator(".widget-menu").getByLabel("Lissage")).toBeVisible();
+    await page.keyboard.press("Escape");
+  } finally {
+    await r.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: what « Relire » said follows the language", async ({ page }) => {
+  const errors = watchErrors(page);
+  const a = await alertRelire(page);
+  try {
+    await page.keyboard.press("Enter"); // failed again
+    const still = a.alert.locator(".reread-still");
+    await expect(still).toHaveText(/^Relu à \d\d:\d\d:\d\d, toujours illisible\.$/);
+    const time = /\d\d:\d\d:\d\d/.exec((await still.textContent())!)![0];
+    await page.getByLabel("Langue").selectOption("en");
+    await expect(still).toHaveText(`Read again at ${time}, still unreadable.`);
+  } finally {
+    await page.getByLabel(/Langue|Language/).selectOption("fr");
+    await a.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: in the edit panel, what « Relire » said goes with the widget: another one, then back, starts afresh", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.route("**/api/plugins/light/commands/group.list", (route) => route.fulfill({ status: 500, json: { ok: false, error: "groupes illisibles pour le test" } }));
+  try {
+    await login(page);
+    await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1);
+    type Saved = { widgets: { id: string; kind: string; target?: string }[] };
+    const widgets = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets;
+    const dca = widgets.find((w) => w.kind === "group-fader" && w.target);
+    const look = widgets.find((w) => w.kind === "look" && w.target);
+    expect(dca && look, "a DCA and a look button on the first dashboard").toBeTruthy();
+    await page.getByRole("button", { name: "✎" }).click();
+    const cell = (id: string) => page.locator(`.dgrid .cell[data-widget="${id}"]`);
+    await cell(dca!.id).click();
+    const panel = page.locator("section.editor:not(.many)");
+    const again = panel.locator(".read-why").getByRole("button", { name: "Relire" });
+    await expect(again).toHaveAttribute("aria-busy", "false");
+    await again.click(); // failed again: said
+    const still = panel.locator(".read-why .reread-still");
+    await expect(still).toHaveText(/toujours illisible/);
+    await cell(look!.id).click(); // another widget (its list is read: no reason)
+    await expect(panel.locator(".read-why")).toHaveCount(0);
+    await cell(dca!.id).click(); // back: its reason again, nothing said yet
+    await expect(again).toBeVisible();
+    await expect(still).toHaveText("");
+    await page.getByRole("button", { name: "✕", exact: true }).first().click(); // out of edit mode, unsaved
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.list");
   }
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
