@@ -6,6 +6,39 @@ Pour reprendre ce chantier avec une IA : voir [plan-agent.md](plan-agent.md).
 Les décisions de conception qui en sortiront vont dans [decisions.md](decisions.md) **et** dans la spec concernée.
 Légende : 🔴 bloquant pour jouer · 🟠 important · 🟡 confort · ⚪ plus tard. « ◐ » = déjà en partie fait.
 
+## ▶️ Point de reprise (2026-11-18) — à lire en premier
+
+Le travail continue avec un autre modèle. Branche de travail : `fix/t2-look-restart-mid-fade` (ne **jamais** fusionner dans `main` sans demander : `main` publie automatiquement).
+
+**Intégré et poussé** (tête `4ebb8a1`) : T43 à T49, T51, T52, T53, T55, le correctif du test instable de la Bibliothèque, et les restes des revues côté serveur et tests.
+
+**Deux branches finies mais pas encore intégrées**, chacune dans son worktree (`.claude/worktrees/…`, verrouillé par Claude Code ; on peut aussi les reprendre par leur nom de branche) :
+
+1. **T54, `refactor/t54-dashboard-widgets`** (worktree `agent-a2365a8aac90c458f`, 21 commits sur `4ebb8a1`, dernier `b27fbb9`). Un module par widget, puis dix-huit revues sur la lecture des listes du Live (alerte « Relire », focus, erreurs par liste, lissage du menu lu dans les listes de la page). Détail dans la fiche T54 plus bas.
+   - **Reste à faire** : relire `b27fbb9` (le lissage lu dans les listes de la page ; vérifier qu'une écriture refusée ne laisse pas affichée une valeur non enregistrée, et qu'une valeur choisie puis changée ailleurs s'affiche juste), puis vérifications complètes, puis `git merge --ff-only`.
+2. **Restes des revues côté web, `fix/leftovers-web`** (worktree `agent-a44c9c7c016dfe552`, 27 commits sur `9257450`, dernier `1813e09`). **À rebaser** sur la branche de travail, **après** T54 (conflits attendus dans les fichiers MIDI du web et `WidgetMenu.tsx`). Contenu, toutes décisions dans `decisions.md` et la spec MIDI :
+   - éditeur MIDI : le pitch bend (molette) ; `midi.learn` apprend une molette ; focus de la Bibliothèque en fin de page ;
+   - molette : une action par poussée, réarmement par Start / Continue / SPP d'Ableton, tenues par port et par client, course « moitié haute » ou « course entière » pour un niveau, pas de retour LED par défaut ;
+   - réglage « relâcher / conserver » quand une entrée disparaît, par type d'entrée (relâcher par défaut) ;
+   - Web MIDI relayé par la connexion WebSocket (identité tirée du transport), un seul onglet relaie, un lot par fenêtre de 15 ms, découpé à 512, renvoi d'un message jeté tant qu'il n'est pas périmé ;
+   - case « ignorer les répétitions » par mapping CC (Bascule, Déclencher), comptée par contrôleur.
+   - **Reste à faire** : la dernière revue (sur `f990eb6` et `e6ddeb1`) a demandé dix points. Les commits `0e256c6` (répétitions par contrôleur, case retirée là où elle ne s'applique pas) et `1813e09` (le nouveau relais attend le `closed` de l'ancien) en traitent une partie ; l'agent s'est arrêté avant son compte rendu. À vérifier un par un : case « Ignorer les répétitions » sur une seule ligne avec son aide à côté et un nom accessible réduit au libellé (modèle `ZoneMenu.tsx:166-171`) ; horloge du `MidiMapper` en `performance.now()` ; `build()` retire `ignoreRepeats` quand il ne s'applique pas, et le serveur exclut `levelArg` ; phrase de la spec rangée dans la puce « CC et mode » ; `giveUp()` retiré ; borne de `FINAL_TRIES` juste (dans le commentaire ou le code) ; test qui fixe « une note et un Start jetés repartent tous les deux » ; tests de `settled` hors ligne et en échec, de la borne basse de `FINAL_TRIES`, de la limite exacte de 150 ms ; test `m.input.type === "cc"` redondant retiré (`mapping.ts:337`). Puis relecture, vérifications complètes, rebase, intégration.
+
+**Trois choix techniques à faire valider par l'utilisateur** (écrits dans la spec MIDI, pas encore dans `decisions.md`) : regroupement des messages Web MIDI sur 15 ms ; limite de 400 lots/s (800 d'avance) par connexion pour `midi.in` ; arrêt du relais Web MIDI sur un 403 (droit manquant).
+
+**Défauts relevés, à corriger plus tard** :
+- `test/e2e/server.test.ts` prend des ports fixes (Art-Net 16454, RTP 15304-15306, 7272) : il échoue quand une autre suite tourne en même temps. Passer à des ports libres choisis au lancement.
+- Les tests UI « tour tablet · admin » et « · regisseur » échouent lancés seuls (840 px au lieu de 820), passent dans la suite complète.
+- `p.error` du menu des widgets hérite de `cursor: pointer` sans être cliquable.
+
+**Ensuite** : T50 (export complet, décisions prises le 2026-11-17, étude dans `docs/plans/T50-export-complet.md`, sept petits choix encore à poser à l'utilisateur, listés dans la fiche T50), puis T29, T23, T30, T42, la livraison 2 de T20b (avec T39). Essais à faire par l'utilisateur sur les vraies lyres : T25, T26, T24, T32, T8, T27, T41, T28, et la page Bibliothèque (T20b).
+
+**Méthode suivie jusqu'ici** (voir aussi `plan-agent.md`) :
+- par tâche : implémentation sur une branche et un worktree à part ; revue de code et d'interface, puis test en opérateur ; corrections ; nouvelle revue jusqu'à ce qu'il ne reste rien de réel (l'utilisateur a demandé « zéro remarque », mineurs compris, mais rien de spéculatif) ; chaque correctif tenu par un test qui échoue sans lui (mutation) ;
+- avant d'intégrer : `npm run typecheck` (vérifie aussi les specs UI), `npx tsc --noEmit -p web/tsconfig.json`, `npm run lint`, `npm test`, suite UI complète (`UI_PORT=… UI_ARTNET_PORT=… npm run test:ui`, jamais le port 8790 ni `data/`), cycles d'imports (`python3 -I docs/plans/tools/import-graph.py .`, fichier local non suivi), doublons (`npx --yes jscpd@4.0.5 src web/src --format "typescript,tsx" --min-lines 8 --min-tokens 60 --ignore "**/i18n.ts" --reporters console --silent`, aujourd'hui 0,05 %), grep de confidentialité ;
+- puis `git merge --ff-only`, `git push`, suppression du worktree et de la branche ;
+- deux suites UI en même temps : `npm run build -w web` une fois, puis `UI_SKIP_BUILD=1` et des ports différents pour chacune.
+
 ## 🔴 Nettoyage du code (prioritaire, demandé le 2026-11-16)
 
 Issu de la cartographie du code du 2026-11-16 (jscpd 4.0.5 : 0,89 % de lignes dupliquées, 534 sur 60 110, en 31 blocs). Chaque chantier ne change **aucun comportement** : suite complète verte avant et après, un lot par chantier, avec la boucle de revue habituelle. T43 à T47 peuvent partir tout de suite ; T48 et T49 attendent l'intégration de T20b et T28, qui touchent les mêmes fichiers.
