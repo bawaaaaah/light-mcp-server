@@ -212,6 +212,7 @@ export function WidgetMenu({
   widget,
   at,
   lists,
+  smoothed,
   readStates,
   onRetry,
   exclusives,
@@ -225,6 +226,8 @@ export function WidgetMenu({
   at: { x: number; y: number };
   /** The show's looks, groups, faders, snapshots, 3D targets (T24) and named positions (T32): a widget picks its own here. */
   lists: TargetLists;
+  /** The page's groups and channel faders, as read (null: not read): a DCA's or a fader's smoothing is read there. */
+  smoothed: { groups: readonly SmoothedTarget[] | null; faders: readonly SmoothedTarget[] | null };
   /** Where the lists not read yet stand: a read under way, and why the last one failed. */
   readStates?: TargetReadStates;
   /** Reads the lists again (« Relire » under a picker whose list failed). */
@@ -248,8 +251,6 @@ export function WidgetMenu({
   /** The look's preview played on the stage: the menu widens for it. */
   const [wide, setWide] = useState(false);
   const [error, setError] = useState("");
-  /** The smoothing's own read failed: said until it is read (again, once the page's lists are). */
-  const [readError, setReadError] = useState("");
   const action = midiAction(widget);
   const advanced = widget.target ? advancedOf(widget.kind) : undefined;
   const loadMappings = () => void cmd<MappingDraft[]>("midi.mapping.list").then(setMappings, () => undefined);
@@ -296,9 +297,8 @@ export function WidgetMenu({
           key={widget.target}
           kind={widget.kind === "group-fader" ? "group" : "fader"}
           id={widget.target}
-          pageList={widget.kind === "group-fader" ? lists.groups : lists.faders}
+          list={widget.kind === "group-fader" ? smoothed.groups : smoothed.faders}
           onError={setError}
-          onReadError={setReadError}
         />
       )}
       {widget.kind !== "preview" && (
@@ -428,7 +428,7 @@ export function WidgetMenu({
           </button>
         </div>
       )}
-      {(error || readError) && <p className="error">{error || readError}</p>}
+      {error && <p className="error">{error}</p>}
       {/* the whole editor of what it drives, where the menu stops: members, channels, timing… */}
       {advanced && onAdvanced && (
         <button className="advanced" title={t.advancedHelp} onClick={() => onAdvanced(advanced, widget.target!)}>
@@ -463,53 +463,37 @@ function GrandMasterSmoothing({ onError }: { onError: (e: string) => void }) {
   );
 }
 
-/** A DCA's or a channel fader's smoothing, saved at once on the object it drives. */
-function TargetSmoothing({ kind, id, pageList, onError, onReadError }: {
-  kind: "group" | "fader";
+/** What a DCA's or a channel fader's smoothing is read from: the page's own list of groups or faders. */
+export interface SmoothedTarget {
   id: string;
-  /** The page's own list of the same objects: each new read of it is a chance to read the smoothing again. */
-  pageList: readonly unknown[] | null;
-  onError: (e: string) => void;
-  onReadError: (e: string) => void;
-}) {
-  type Target = { id: string; smoothing?: Smoothing; master?: { level: number; mute: boolean; smoothing?: Smoothing } };
-  const [target, setTarget] = useState<Target | null>(null);
-  /**
-   * Its own read passed: until then (failed, or still on its way) it is read again at the page's next read of the list;
-   * once shown, never (no remount under a hand that is typing).
-   */
-  const [ok, setOk] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  // its read failing is said until a read passes (not a write's error: those stay the menu's); a read answering after
-  // a newer one started, or after the menu closed, changes nothing
+  smoothing?: Smoothing;
+  master?: { level: number; mute: boolean; smoothing?: Smoothing };
+}
+const sameSmoothing = (a: Smoothing | undefined, b: Smoothing | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * A DCA's or a channel fader's smoothing, saved at once on the object it drives. Read from the page's list (one source:
+ * the page reads it, « Relire » and every change read it again); that list unread, nothing is shown (the picker's
+ * reason says why). What is chosen is shown at once and kept until the list says the same, so a read already on its
+ * way when it was chosen does not undo it on screen.
+ */
+function TargetSmoothing({ kind, id, list, onError }: { kind: "group" | "fader"; id: string; list: readonly SmoothedTarget[] | null; onError: (e: string) => void }) {
+  const target = list?.find((x) => x.id === id);
+  const listed = kind === "group" ? target?.master?.smoothing : target?.smoothing;
+  const [chosen, setChosen] = useState<{ value: Smoothing | undefined } | null>(null);
   useEffect(() => {
-    let live = true;
-    void cmd<Target[]>(`${kind}.list`).then(
-      (l) => live && (setTarget(l.find((x) => x.id === id) ?? null), setOk(true), onReadError("")),
-      (e: Error) => live && onReadError(e.message),
-    );
-    return () => {
-      live = false;
-    };
-  }, [kind, id, onReadError, attempt]);
-  const seen = useRef(pageList);
-  useEffect(() => {
-    if (pageList === seen.current) return;
-    seen.current = pageList;
-    if (pageList && !ok) setAttempt((n) => n + 1);
-  }, [pageList, ok]);
-  // gone with its field: its read error goes too
-  useEffect(() => () => onReadError(""), [onReadError]);
+    if (chosen && sameSmoothing(chosen.value, listed)) setChosen(null);
+  }, [chosen, listed]);
   // a group without a master has no fader to smooth
   if (!target || (kind === "group" && !target.master)) return null;
   return (
     <SmoothingField
-      value={kind === "group" ? target.master!.smoothing : target.smoothing}
+      value={chosen ? chosen.value : listed}
       onChange={(smoothing) => {
-        const smoothed = (x: Target) => (kind === "group" ? { ...x, master: { ...x.master!, smoothing } } : { ...x, smoothing });
-        setTarget(smoothed(target));
+        setChosen({ value: smoothing });
+        const smoothed = (x: SmoothedTarget) => (kind === "group" ? { ...x, master: { ...x.master!, smoothing } } : { ...x, smoothing });
         // read again first: the fader may have moved since the menu opened, its level is not ours to put back
-        void cmd<Target[]>(`${kind}.list`)
+        void cmd<SmoothedTarget[]>(`${kind}.list`)
           .then((l) => {
             const fresh = l.find((x) => x.id === id);
             if (!fresh) throw new Error(id);

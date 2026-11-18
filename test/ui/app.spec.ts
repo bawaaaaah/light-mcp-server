@@ -1775,10 +1775,6 @@ test("dashboards: « Relire » in a widget's menu says a renewed failure under t
   const r = await relireOpen(page);
   try {
     const before = await r.again.boundingBox();
-    // the smoothing's read failed too: said in the menu's error, in a red that reads on its panel
-    const error = page.locator(".widget-menu p.error");
-    await expect(error).toBeVisible();
-    expect(await contrastOf(error)).toBeGreaterThanOrEqual(4.5);
     await r.again.focus();
     await page.keyboard.press("Enter"); // failed again
     await expect(r.picker).toHaveAttribute("aria-busy", "true");
@@ -1796,18 +1792,18 @@ test("dashboards: « Relire » in a widget's menu says a renewed failure under t
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
 
-test("dashboards: the menu's smoothing is read again with « Relire », and its error goes", async ({ page }) => {
+test("dashboards: the menu's smoothing comes with its list, read again by « Relire », and says no error of its own", async ({ page }) => {
   const errors = watchErrors(page);
   const r = await relireOpen(page);
   try {
     const error = page.locator(".widget-menu p.error");
-    await expect(error).toContainText("groupes illisibles pour le test"); // the smoothing's read failed too
-    await expect(page.locator(".widget-menu").getByLabel("Lissage")).toHaveCount(0);
+    await expect(page.locator(".widget-menu").getByLabel("Lissage")).toHaveCount(0); // its list unread: not shown
+    await expect(error).toHaveCount(0); // the picker's reason says why
     r.fail(false);
     await r.again.click(); // read this time
     await expect(r.picker).toBeEnabled();
-    await expect(error).toHaveCount(0);
     await expect(page.locator(".widget-menu").getByLabel("Lissage")).toBeVisible();
+    await expect(error).toHaveCount(0);
     await page.keyboard.press("Escape");
   } finally {
     await r.done();
@@ -1873,38 +1869,7 @@ test("dashboards: the page's lists read while the smoothing is typed in remount 
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
 
-test("dashboards: the smoothing's first read failing late, after « Relire » read it, says nothing", async ({ page }) => {
-  const errors = watchErrors(page);
-  const st = await scriptedList(page, "group.list");
-  st.mode = "fail";
-  try {
-    await login(page);
-    await expect(page.locator(".dashboards .bar .read-error")).toHaveCount(1);
-    st.mode = "pass";
-    const dca = await firstDca(page);
-    st.mode = "fail";
-    st.script = ["fail", "hold", "fail"]; // the page's read, the menu's own (kept on the wire), the page's retry
-    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
-    const menu = page.locator(".widget-menu");
-    const again = menu.locator(".read-why").getByRole("button", { name: "Relire" });
-    await expect(again).toHaveAttribute("aria-disabled", "false");
-    await expect.poll(() => st.held.length).toBe(1);
-    st.mode = "pass";
-    await again.click();
-    await expect(menu.getByLabel("Lissage")).toBeVisible();
-    st.letGo(); // the first read fails, late
-    await page.waitForTimeout(300);
-    await expect(menu.locator("p.error")).toHaveCount(0);
-    await expect(menu.getByLabel("Lissage")).toBeVisible();
-    await page.keyboard.press("Escape");
-  } finally {
-    st.letGo();
-    await page.unroute("**/api/plugins/light/commands/group.list");
-  }
-  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
-});
-
-test("dashboards: a list read, then the server away: the menu's smoothing comes back with the page's next read, or the alert's « Relire »", async ({ page }) => {
+test("dashboards: a list read, then the server away: the menu's smoothing stays, and the lists come back with the page's next read, or the alert's « Relire »", async ({ page }) => {
   const errors = watchErrors(page);
   const st = await scriptedList(page, "group.list");
   try {
@@ -1916,8 +1881,9 @@ test("dashboards: a list read, then the server away: the menu's smoothing comes 
       st.mode = "fail";
       await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
       await expect(alert).toHaveCount(1);
-      await expect(menu.locator("p.error")).toContainText("liste illisible pour le test");
-      await expect(menu.getByLabel("Lissage")).toHaveCount(0);
+      // the last list read still says the smoothing: shown, no error of its own
+      await expect(menu.getByLabel("Lissage")).toBeVisible();
+      await expect(menu.locator("p.error")).toHaveCount(0);
       st.mode = "pass";
     };
     // a command elsewhere: the page reads its lists again, the menu open
@@ -1941,18 +1907,17 @@ test("dashboards: a list read, then the server away: the menu's smoothing comes 
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
 
-test("dashboards: the smoothing's read error goes with its field", async ({ page }) => {
+test("dashboards: the smoothing goes with its group: « — », then the group back", async ({ page }) => {
   const errors = watchErrors(page);
   const st = await scriptedList(page, "group.list");
   try {
     await login(page);
     const dca = await firstDca(page);
-    st.mode = "fail";
     await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
     const menu = page.locator(".widget-menu");
-    await expect(menu.locator("p.error")).toContainText("liste illisible pour le test");
-    await menu.getByLabel("Pilote").selectOption(""); // no group: no smoothing, nor its error
-    await expect(menu.locator("p.error")).toHaveCount(0);
+    await expect(menu.getByLabel("Lissage")).toBeVisible();
+    await menu.getByLabel("Pilote").selectOption(""); // no group: no smoothing
+    await expect(menu.getByLabel("Lissage")).toHaveCount(0);
     st.mode = "pass";
     await menu.getByLabel("Pilote").selectOption(dca.target!); // put back
     await expect(menu.getByLabel("Lissage")).toBeVisible();
@@ -1963,33 +1928,107 @@ test("dashboards: the smoothing's read error goes with its field", async ({ page
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
 });
 
-test("dashboards: a channel fader's smoothing comes back with the page's next read of the faders", async ({ page }) => {
+test("dashboards: a channel fader's smoothing follows the page's faders, not its groups", async ({ page }) => {
   const errors = watchErrors(page);
-  const st = await scriptedList(page, "fader.list");
+  const faders = await scriptedList(page, "fader.list");
+  const groups = await scriptedList(page, "group.list");
   try {
     await login(page);
     const fixture = ((await api(page, "venue.fixture.list")) as { id: string }[])[0];
     expect(fixture, "a fixture in the venue").toBeTruthy();
-    await api(page, "fader.put", { fader: { id: "t54-fader", name: "Fader essai", channels: [{ fixture: fixture!.id, offset: 0 }], level: 0 } });
+    await api(page, "fader.put", { fader: { id: "t54-fader", name: "Fader essai", channels: [{ fixture: fixture!.id, offset: 0 }], level: 0, smoothing: { curve: "linear", msPerStep: 5 } } });
     await api(page, "dashboard.put", { dashboard: { id: "t54-fader", name: "Fader essai", columns: 12, widgets: [{ id: "f", kind: "channel-fader", x: 0, y: 0, w: 1, h: 4, target: "t54-fader" }] } });
+    groups.mode = "fail"; // the groups unreadable all along
+    faders.mode = "fail";
     await page.reload();
     await page.locator(".dashboards .bar .tab", { hasText: "Fader essai" }).click();
-    st.mode = "fail";
     await page.locator('.dgrid .cell[data-widget="f"]').click({ button: "right" });
     const menu = page.locator(".widget-menu");
-    await expect(menu.locator("p.error")).toContainText("liste illisible pour le test");
+    await expect(menu.locator(".read-why")).toContainText("Faders illisibles");
     await expect(menu.getByLabel("Lissage")).toHaveCount(0);
-    st.mode = "pass";
-    await api(page, "look.stopall"); // the page reads its lists again
-    await expect(menu.locator("p.error")).toHaveCount(0);
-    await expect(menu.getByLabel("Lissage")).toBeVisible();
+    faders.mode = "pass"; // only the faders read again
+    await menu.locator(".read-why").getByRole("button", { name: "Relire" }).click();
+    await expect(menu.getByLabel("Lissage")).toHaveValue("5");
     await page.keyboard.press("Escape");
   } finally {
     await page.unroute("**/api/plugins/light/commands/fader.list");
+    await page.unroute("**/api/plugins/light/commands/group.list");
     await api(page, "dashboard.delete", { id: "t54-fader" });
     await api(page, "fader.delete", { id: "t54-fader", force: true });
   }
   expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: opening a DCA's menu reads the groups once, the page's read", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const dca = await firstDca(page);
+  await page.waitForTimeout(500); // the page's own reads at its opening are over
+  let reads = 0;
+  page.on("request", (r) => r.url().endsWith("/commands/group.list") && reads++);
+  await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+  const menu = page.locator(".widget-menu");
+  await expect(menu.getByLabel("Lissage")).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(reads).toBe(1);
+  // a write that fails is the menu's own error, in a red that reads on its panel
+  await page.route("**/api/plugins/light/commands/group.put", (route) => route.fulfill({ status: 500, json: { ok: false, error: "écriture refusée pour le test" } }));
+  try {
+    const before = await menu.getByLabel("Lissage").inputValue();
+    await menu.getByLabel("Lissage").selectOption(before === "5" ? "10" : "5");
+    const error = menu.locator("p.error");
+    await expect(error).toContainText("écriture refusée pour le test");
+    expect(await contrastOf(error)).toBeGreaterThanOrEqual(4.5);
+    await page.keyboard.press("Escape");
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.put");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: a smoothing chosen is shown at once, kept while the page reads its lists, and saved", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const dca = await firstDca(page);
+  type G = { id: string; master?: { smoothing?: { curve: string; msPerStep: number } } };
+  const g = ((await api(page, "group.list")) as G[]).find((x) => x.id === dca.target)!;
+  await api(page, "group.put", { group: { ...g, master: { ...g.master, smoothing: { curve: "linear", msPerStep: 2 } } } });
+  // the page's next read of the groups after the choice is held on the wire (the write's own read passes)
+  let armed = false;
+  let skip = 0;
+  let letGo!: () => void;
+  const held = new Promise<void>((r) => (letGo = r));
+  await page.route("**/api/plugins/light/commands/group.list", async (route) => {
+    if (armed && skip-- <= 0) {
+      armed = false;
+      await held;
+    }
+    await route.continue();
+  });
+  try {
+    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+    const liss = page.locator(".widget-menu").getByLabel("Lissage");
+    await expect(liss).toHaveValue("2");
+    armed = true;
+    skip = 1; // the write reads the group first
+    await liss.selectOption("10"); // just after it showed
+    await expect(liss).toHaveValue("10");
+    await page.waitForTimeout(300); // the page's read is held: the list still says 2
+    await expect(liss).toHaveValue("10");
+    letGo();
+    await page.waitForTimeout(300);
+    await expect(liss).toHaveValue("10");
+    expect(((await api(page, "group.list")) as G[]).find((x) => x.id === dca.target)?.master?.smoothing?.msPerStep).toBe(10);
+    // the list said it: the choice gives way, a change from elsewhere shows
+    await api(page, "group.put", { group: { ...g, master: { ...g.master, smoothing: { curve: "linear", msPerStep: 5 } } } });
+    await expect(liss).toHaveValue("5");
+    await page.keyboard.press("Escape");
+  } finally {
+    letGo();
+    await page.unroute("**/api/plugins/light/commands/group.list");
+    await api(page, "group.put", { group: g });
+  }
+  expect(errors).toEqual([]);
 });
 
 test("dashboards: what « Relire » said follows the language", async ({ page }) => {

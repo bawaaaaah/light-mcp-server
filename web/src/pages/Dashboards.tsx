@@ -800,6 +800,7 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
           widget={dash.widgets.find((w) => w.id === menu.id)!}
           at={menu}
           lists={targetLists}
+          smoothed={{ groups: listsRead.groups ? groups : null, faders: listsRead.faders ? faders : null }}
           readStates={listReadStates}
           onRetry={refresh}
           exclusives={editor ? sets : undefined}

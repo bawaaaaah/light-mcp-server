@@ -10,6 +10,7 @@ import type { ExclusiveSet } from "../components/WidgetMenu";
 import type { FixtureFunctions } from "../fader-functions";
 import type { KnowledgeIntentions } from "../intentions";
 import type { Widget } from "../dashboard-layout";
+import type { Smoothing } from "../components/SmoothingField";
 
 export interface Look {
   id: string;
@@ -26,7 +27,7 @@ export interface Group {
   name: string;
   exclusive?: boolean;
   members?: { looks: string[] };
-  master?: { level: number; mute: boolean; smoothing?: unknown };
+  master?: { level: number; mute: boolean; smoothing?: Smoothing };
   limits?: { min?: number; max?: number; mode?: "clamp" | "scale" };
   effectiveLevel: number;
 }
@@ -36,7 +37,7 @@ export interface ChannelFader {
   level: number;
   channels: { fixture: string; offset: number }[];
   range?: { min: number; max: number };
-  smoothing?: unknown;
+  smoothing?: Smoothing;
 }
 export interface Tempo {
   bpm: number;
