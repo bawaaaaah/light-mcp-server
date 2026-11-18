@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactElement, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type FocusEvent, type ReactElement, type RefObject } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
@@ -143,7 +143,6 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, ne
     // no target): the picker is gone too, the control after it gets the focus
     (selectRef.current ?? next?.current)?.focus();
   }, [read, next]);
-  const reread = useReread(busy, () => onRetry?.());
   const options = read ?? [];
   const missing = Boolean(list && value && !options.some((x) => x.id === value));
   if (!options.length && !missing && !why) return null;
@@ -162,18 +161,15 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, ne
   );
   // « Relire » is never `disabled` while a read is under way: a disabled button would drop the focus to the page
   const reason = why && (
-    <small className="read-why">
-      <span id={whyId}>{why}</span>
-      {onRetry && (
-        <RereadButton
-          reread={reread}
-          onFocus={() => (againFocused.current = true)}
-          // the focus moved elsewhere; not when the window lost it (another app): the button keeps it there
-          onBlur={(e) => document.activeElement !== e.currentTarget && (againFocused.current = false)}
-        />
-      )}
-      {onRetry && <RereadStill reread={reread} />}
-    </small>
+    <ReadWhy
+      id={whyId}
+      why={why}
+      busy={busy}
+      onRetry={onRetry}
+      onFocus={() => (againFocused.current = true)}
+      // the focus moved elsewhere; not when the window lost it (another app): the button keeps it there
+      onBlur={(e) => document.activeElement !== e.currentTarget && (againFocused.current = false)}
+    />
   );
   return field ? (
     <>
@@ -188,6 +184,21 @@ export function TargetSelect({ kind, value, lists, readStates, field = false, ne
       {select}
       {reason}
     </>
+  );
+}
+
+/**
+ * Why a picker's list could not be read, under it, with « Relire »: mounted only while it is not read, so what
+ * « Relire » said goes once it is (a later failure starts afresh).
+ */
+function ReadWhy({ id, why, busy, onRetry, onFocus, onBlur }: { id: string; why: string; busy: boolean; onRetry?: () => void; onFocus: () => void; onBlur: (e: FocusEvent<HTMLButtonElement>) => void }): ReactElement {
+  const reread = useReread(busy, () => onRetry?.());
+  return (
+    <small className="read-why">
+      <span id={id}>{why}</span>
+      {onRetry && <RereadButton reread={reread} onFocus={onFocus} onBlur={onBlur} />}
+      {onRetry && <RereadStill reread={reread} />}
+    </small>
   );
 }
 

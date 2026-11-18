@@ -15,20 +15,19 @@ export interface Reread {
 /**
  * « Relire »: reads a list (or the Live's lists) that could not be read again. While a read is under way it is busy and
  * a press does nothing more; a press whose read fails again (the button still there once the read is over) is said with
- * the time, without the whole alert again. A read it did not start says nothing. The time is injectable (`now`).
+ * the time, without the whole alert again. A read it did not start says nothing. Its owner mounts it with what it
+ * says « illisible » (the alert, a picker's reason): a list read takes what it said away with it. The time is
+ * injectable (`now`).
  */
 export function useReread(busy: boolean, onRetry: () => void, now: () => Date = NOW): Reread {
   const t = useT();
   /** Pressed, and its read not over yet. */
   const pressed = useRef(false);
-  const wasBusy = useRef(busy);
   const [still, setStill] = useState("");
   useEffect(() => {
-    if (wasBusy.current && !busy && pressed.current) {
-      pressed.current = false;
-      setStill(t.rereadStill.replace("{time}", () => clock(now())));
-    }
-    wasBusy.current = busy;
+    if (busy || !pressed.current) return;
+    pressed.current = false;
+    setStill(t.rereadStill.replace("{time}", () => clock(now())));
   }, [busy, t, now]);
   return {
     busy,

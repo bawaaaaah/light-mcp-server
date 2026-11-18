@@ -1352,6 +1352,17 @@ test("dashboards: a widget's target is not said « introuvable » while its list
   expect(errors).toEqual([]);
 });
 
+/** The contrast of an element's text on the first background behind it. */
+const contrastOf = (element: Locator) =>
+  element.evaluate((el) => {
+    const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).map(Number);
+    const lum = ([r, g, b]: number[]) => [r!, g!, b!].map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0);
+    let bg: Element | null = el;
+    while (bg && rgb(getComputedStyle(bg).backgroundColor)[3] === 0) bg = bg.parentElement;
+    const [light, dark] = [lum(rgb(getComputedStyle(el).color)), lum(rgb(getComputedStyle(bg ?? document.body).backgroundColor))].sort((x, y) => y - x);
+    return (light! + 0.05) / (dark! + 0.05);
+  });
+
 test("dashboards: the groups failing to read are said, and read again they make the DCA's picker usable", async ({ page }) => {
   const errors = watchErrors(page);
   // every read fails (the page's, and its retry) until the test lets them through; `held` keeps them on the wire
@@ -1386,16 +1397,9 @@ test("dashboards: the groups failing to read are said, and read again they make 
     await expect(picker).toBeDisabled();
     await expect(picker).toHaveAttribute("aria-busy", "true");
     await expect(why).toContainText("Groupes illisibles : groupes illisibles pour le test.");
-    // its red reads on the menu's panel: 4.5:1 at least
-    const contrast = await why.locator("span").first().evaluate((el) => {
-      const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).map(Number);
-      const lum = ([r, g, b]: number[]) => [r!, g!, b!].map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4)).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i]!, 0);
-      let bg: Element | null = el;
-      while (bg && rgb(getComputedStyle(bg).backgroundColor)[3] === 0) bg = bg.parentElement;
-      const [light, dark] = [lum(rgb(getComputedStyle(el).color)), lum(rgb(getComputedStyle(bg ?? document.body).backgroundColor))].sort((x, y) => y - x);
-      return (light! + 0.05) / (dark! + 0.05);
-    });
-    expect(contrast).toBeGreaterThanOrEqual(4.5);
+    // its red reads on the menu's panel: 4.5:1 at least, as « Retirer du dashboard »
+    expect(await contrastOf(why.locator("span").first())).toBeGreaterThanOrEqual(4.5);
+    expect(await contrastOf(menu.getByRole("button", { name: "Retirer du dashboard" }))).toBeGreaterThanOrEqual(4.5);
     // the description is the reason alone, not « Relire »
     await expect(picker).toHaveAttribute("aria-describedby", (await why.locator("span").first().getAttribute("id"))!);
     await expect(page.locator(`[id="${await picker.getAttribute("aria-describedby")}"]`)).toHaveText("Groupes illisibles : groupes illisibles pour le test.");
@@ -1668,17 +1672,18 @@ test("dashboards: a volunteer reads the failed lists again from the alert itself
  * A volunteer on the Live with its groups failing, the alert's « Relire » focused. `fail(false)` lets the reads pass,
  * `hold()` keeps the next ones on the wire until the function it gives back lets them go; `reads()` counts them.
  */
-async function alertRelire(page: Page) {
+async function alertRelire(page: Page, pin = "5678") {
   let failing = true;
   let held: Promise<void> | null = null;
   let reads = 0;
+  let message = "groupes illisibles pour le test";
   await page.route("**/api/plugins/light/commands/group.list", async (route) => {
     reads++;
     if (held) await held;
-    if (failing) return route.fulfill({ status: 500, json: { ok: false, error: "groupes illisibles pour le test" } });
+    if (failing) return route.fulfill({ status: 500, json: { ok: false, error: message } });
     await route.continue();
   });
-  await login(page, "5678");
+  await login(page, pin);
   const alert = page.locator(".dashboards .bar .read-error");
   await expect(alert).toHaveCount(1);
   const again = alert.getByRole("button", { name: "Relire" });
@@ -1690,6 +1695,7 @@ async function alertRelire(page: Page) {
     tab: page.locator(".dashboards .bar .tab.active"),
     reads: () => reads,
     fail: (on: boolean) => void (failing = on),
+    say: (m: string) => void (message = m),
     hold: () => {
       let open!: () => void;
       held = new Promise<void>((r) => (open = r));
@@ -1698,6 +1704,120 @@ async function alertRelire(page: Page) {
     done: () => page.unroute("**/api/plugins/light/commands/group.list"),
   };
 }
+
+test("dashboards: what « Relire » said goes with the alert: a read, then a failure, starts afresh", async ({ page }) => {
+  const errors = watchErrors(page);
+  const a = await alertRelire(page);
+  try {
+    await page.keyboard.press("Enter"); // failed again: said
+    await expect(a.alert.locator(".reread-still")).toHaveText(/toujours illisible/);
+    a.fail(false);
+    await page.keyboard.press("Enter"); // read this time: the alert goes
+    await expect(a.alert).toHaveCount(0);
+    a.fail(true);
+    await api(page, "look.stopall"); // later, a read in the background fails
+    await expect(a.alert).toHaveCount(1);
+    await expect(a.alert.locator(".reread-still")).toHaveText("");
+  } finally {
+    await a.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: an alert closed by ✕ while « Relire » reads says nothing of it when another failure comes", async ({ page }) => {
+  const errors = watchErrors(page);
+  const a = await alertRelire(page);
+  const letGo = a.hold();
+  try {
+    await page.keyboard.press("Enter");
+    await expect(a.again).toHaveAttribute("aria-busy", "true");
+    await a.alert.getByRole("button", { name: "Fermer" }).click();
+    await expect(a.alert).toHaveCount(0);
+    letGo(); // its read fails, the alert closed
+    await page.waitForTimeout(1500);
+    a.say("autre panne pour le test");
+    await api(page, "look.stopall");
+    await expect(a.alert).toContainText("autre panne pour le test");
+    await expect(a.alert.locator(".reread-still")).toHaveText("");
+  } finally {
+    letGo();
+    await a.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: the lists read from a widget's menu take what the alert's « Relire » said with them", async ({ page }) => {
+  const errors = watchErrors(page);
+  const a = await alertRelire(page, "1234");
+  try {
+    await page.keyboard.press("Enter"); // the alert's « Relire »: failed again, said
+    await expect(a.alert.locator(".reread-still")).toHaveText(/toujours illisible/);
+    a.fail(false);
+    type Saved = { widgets: { id: string; kind: string; target?: string }[] };
+    const dca = ((await api(page, "dashboard.list")) as Saved[])[0]!.widgets.find((w) => w.kind === "group-fader" && w.target);
+    expect(dca, "a DCA widget with its group on the first dashboard").toBeTruthy();
+    await page.locator(`.dgrid .cell[data-widget="${dca!.id}"]`).click({ button: "right" }); // the menu reads the lists: read
+    await expect(a.alert).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    a.fail(true);
+    await api(page, "look.stopall");
+    await expect(a.alert).toHaveCount(1);
+    await expect(a.alert.locator(".reread-still")).toHaveText("");
+  } finally {
+    await a.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: « Relire » in a widget's menu says a renewed failure under the reason", async ({ page }) => {
+  const errors = watchErrors(page);
+  const r = await relireOpen(page);
+  try {
+    // nothing said yet: no empty row under the reason and its button
+    const why = page.locator(".widget-menu .read-why");
+    const [whyBox, againBox] = [await why.boundingBox(), await r.again.boundingBox()];
+    expect(whyBox!.y + whyBox!.height).toBeLessThanOrEqual(againBox!.y + againBox!.height + 1);
+    await r.again.focus();
+    await page.keyboard.press("Enter"); // failed again
+    await expect(r.picker).toHaveAttribute("aria-busy", "true");
+    await expect(r.picker).toHaveAttribute("aria-busy", "false");
+    const still = page.locator(".widget-menu .read-why .reread-still");
+    await expect(still).toHaveAttribute("aria-live", "polite");
+    await expect(still).toHaveText(/^Relu à \d\d:\d\d:\d\d, toujours illisible\.$/);
+    const [reason, box] = [await page.locator(".widget-menu .read-why > span").first().boundingBox(), await still.boundingBox()];
+    expect(box!.y).toBeGreaterThanOrEqual(reason!.y + reason!.height - 1); // under the reason
+    await page.keyboard.press("Escape");
+  } finally {
+    await r.done();
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: a renewed failure moves neither the alert nor its « Relire », from a phone to a wide screen", async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.route("**/api/plugins/light/commands/group.list", (route) => route.fulfill({ status: 500, json: { ok: false, error: "server away" } }));
+  try {
+    await login(page, "5678");
+    for (const width of [320, 390, 768, 1024, 1280, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.reload();
+      const alert = page.locator(".dashboards .bar .read-error");
+      const again = alert.getByRole("button", { name: "Relire" });
+      await expect(again).toHaveAttribute("aria-busy", "false");
+      const box = async () => {
+        const [x, y] = [await alert.boundingBox(), await again.boundingBox()];
+        return { alertX: Math.round(x!.x), alertW: Math.round(x!.width), againX: Math.round(y!.x), againY: Math.round(y!.y) };
+      };
+      const before = await box();
+      await again.click();
+      await expect(alert.locator(".reread-still")).toHaveText(/toujours illisible/);
+      expect(await box(), `${width}`).toEqual(before);
+    }
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.list");
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
 
 test("dashboards: the alert's « Relire » is busy while it reads, ignores a second press, and says a renewed failure", async ({ page }) => {
   const errors = watchErrors(page);
@@ -1810,6 +1930,11 @@ test("dashboards: the alert, its « Relire » and a renewed failure fit a phone,
         await expect(alert.locator(".read-error-lines > span")).toHaveText(t.lines);
         const again = alert.getByRole("button", { name: t.button });
         expect(await labelLines(again), `${lang} ${width}`).toBe(1);
+        // beside the lines, not under them; in the text's colour, ✕ in the ghost buttons' grey
+        const [row, button] = [await alert.locator(".read-error-lines").boundingBox(), await again.boundingBox()];
+        expect(button!.y, `${lang} ${width}`).toBeLessThan(row!.y + row!.height);
+        await expect(again).toHaveCSS("color", "rgb(231, 233, 238)");
+        await expect(alert.getByRole("button", { name: lang === "fr" ? "Fermer" : "Close" })).toHaveCSS("color", "rgb(139, 147, 167)");
         // pressed, and failed again: said under the lines, the whole width, its words whole
         await expect(again).toHaveAttribute("aria-busy", "false");
         await again.click();

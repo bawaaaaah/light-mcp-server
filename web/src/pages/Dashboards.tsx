@@ -14,7 +14,7 @@ import { usePositions } from "../hooks/usePositions";
 import type { FixtureFunctions } from "../fader-functions";
 import { LiveStagePanel } from "../components/LiveStagePanel";
 import { AdvancedEditors } from "../components/AdvancedEditors";
-import { RereadButton, RereadStill, useReread } from "../components/RereadButton";
+import { ReadAlert } from "../components/ReadAlert";
 import { putInSet, WidgetMenu, type ExclusiveSet, type TargetLists, type TargetReadStates } from "../components/WidgetMenu";
 import type { LookDraft } from "../components/LookEditor";
 import type { KnowledgeIntentions } from "../intentions";
@@ -497,7 +497,6 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
   const alertShown = alert.length > 0;
   /** A read of a list the alert names is under way: its « Relire » waits for it. */
   const alertBusy = alert.some((line) => line.lists.some((l) => readStates[l]?.reading));
-  const alertReread = useReread(alertBusy, refresh);
   useEffect(() => {
     if (alertShown || !alertFocused.current) return;
     alertFocused.current = false;
@@ -616,37 +615,20 @@ export function DashboardsPage({ role }: { role: Role }): ReactElement {
         )}
         {/* the lists that could not be read: one alert, a line per message (a server away says it once for all), gone
             once they are read; closed by ✕, it comes back only if the failure changes */}
-        {alert.length > 0 && (
-          <span
-            className="error read-error"
-            role="alert"
+        {alertShown && (
+          <ReadAlert
+            lines={alert.map((line) => ({ key: line.lists.join(), text: readFailed(line.lists, line.message) }))}
+            busy={alertBusy}
+            onRetry={refresh}
+            onClose={() => {
+              // the focus stays in the bar, on its current tab, rather than falling to the page
+              focusBar(); // leaving the alert, the focus resets `alertFocused` (its blur)
+              setReadStates((s) => dismissed(s, alert.flatMap((line) => line.lists)));
+            }}
             onFocus={() => (alertFocused.current = true)}
             // the focus left the alert; not when the window lost it (another app)
             onBlur={(e) => !e.currentTarget.contains(document.activeElement) && (alertFocused.current = false)}
-          >
-            <span className="read-error-lines">
-              {alert.map((line) => (
-                <span key={line.lists.join()}>{readFailed(line.lists, line.message)}</span>
-              ))}
-              <span>{t.readFailedHow}</span>
-            </span>
-            {/* every role reads the lists again here: the menus and the edit mode are not everyone's */}
-            <RereadButton reread={alertReread} />
-            <button
-              className="ghost"
-              aria-label={t.close}
-              title={t.close}
-              onClick={() => {
-                // the focus stays in the bar, on its current tab, rather than falling to the page
-                focusBar(); // leaving the alert, the focus resets `alertFocused` (its blur)
-                setReadStates((s) => dismissed(s, alert.flatMap((line) => line.lists)));
-              }}
-            >
-              ✕
-            </button>
-            {/* a renewed failure: under the lines, the whole width */}
-            <RereadStill reread={alertReread} />
-          </span>
+          />
         )}
       </section>
 
