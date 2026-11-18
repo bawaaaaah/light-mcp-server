@@ -2031,6 +2031,83 @@ test("dashboards: a smoothing chosen is shown at once, kept while the page reads
   expect(errors).toEqual([]);
 });
 
+test("dashboards: a smoothing whose write is refused is said not saved, and the menu opened again shows what is", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const dca = await firstDca(page);
+  type G = { id: string; master?: { smoothing?: { curve: string; msPerStep: number } } };
+  const g = ((await api(page, "group.list")) as G[]).find((x) => x.id === dca.target)!;
+  await api(page, "group.put", { group: { ...g, master: { ...g.master, smoothing: { curve: "linear", msPerStep: 2 } } } });
+  await page.route("**/api/plugins/light/commands/group.put", (route) => route.fulfill({ status: 500, json: { ok: false, error: "écriture refusée pour le test" } }));
+  try {
+    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+    const liss = page.locator(".widget-menu").getByLabel("Lissage");
+    await expect(liss).toHaveValue("2");
+    await liss.selectOption("10");
+    await expect(page.locator(".widget-menu p.error")).toHaveText(/écriture refusée pour le test/); // said not saved
+    expect(((await api(page, "group.list")) as G[]).find((x) => x.id === dca.target)?.master?.smoothing?.msPerStep).toBe(2);
+    await page.keyboard.press("Escape");
+    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+    await expect(page.locator(".widget-menu").getByLabel("Lissage")).toHaveValue("2"); // what is saved
+    await expect(page.locator(".widget-menu p.error")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  } finally {
+    await page.unroute("**/api/plugins/light/commands/group.put");
+    await api(page, "group.put", { group: g });
+  }
+  expect(errors.filter((e) => !e.includes("status of 500"))).toEqual([]);
+});
+
+test("dashboards: a smoothing saved, then changed elsewhere before the page read it: the newer value shows", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  const dca = await firstDca(page);
+  type G = { id: string; master?: { smoothing?: { curve: string; msPerStep: number } } };
+  const g = ((await api(page, "group.list")) as G[]).find((x) => x.id === dca.target)!;
+  await api(page, "group.put", { group: { ...g, master: { ...g.master, smoothing: { curve: "linear", msPerStep: 2 } } } });
+  // after the choice, the write's own read (the first one) passes; every later read of the groups by the page waits:
+  // it never sees our 10, only what comes after
+  let armed = false;
+  let ownRead = false;
+  let putPassed = false;
+  const held: (() => void)[] = [];
+  await page.route("**/api/plugins/light/commands/group.list", async (route) => {
+    if (armed) {
+      if (!ownRead) ownRead = true;
+      else await new Promise<void>((r) => held.push(r));
+    }
+    await route.continue();
+  });
+  await page.route("**/api/plugins/light/commands/group.put", async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res });
+    putPassed = true;
+  });
+  try {
+    await page.locator(`.dgrid .cell[data-widget="${dca.id}"]`).click({ button: "right" });
+    const liss = page.locator(".widget-menu").getByLabel("Lissage");
+    await expect(liss).toHaveValue("2");
+    armed = true;
+    await liss.selectOption("10");
+    await expect.poll(() => putPassed).toBe(true); // our 10 is saved
+    await expect(liss).toHaveValue("10");
+    // elsewhere, before the page read our 10 (through the page's own fetch: its put passes, it reads nothing)
+    await page.evaluate(async (group) => {
+      await fetch("/api/plugins/light/commands/group.put", { method: "POST", headers: { authorization: `Bearer ${sessionStorage.getItem("token")}`, "content-type": "application/json" }, body: JSON.stringify({ group }) });
+    }, { ...g, master: { ...g.master, smoothing: { curve: "linear", msPerStep: 5 } } });
+    await page.unroute("**/api/plugins/light/commands/group.list");
+    held.splice(0).forEach((r) => r());
+    await expect(liss).toHaveValue("5"); // the list moved away from what it said when our write passed: it wins
+    await page.keyboard.press("Escape");
+  } finally {
+    held.splice(0).forEach((r) => r());
+    await page.unroute("**/api/plugins/light/commands/group.list");
+    await page.unroute("**/api/plugins/light/commands/group.put");
+    await api(page, "group.put", { group: g });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("dashboards: what « Relire » said follows the language", async ({ page }) => {
   const errors = watchErrors(page);
   const a = await alertRelire(page);

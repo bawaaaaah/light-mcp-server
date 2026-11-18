@@ -480,9 +480,13 @@ const sameSmoothing = (a: Smoothing | undefined, b: Smoothing | undefined) => JS
 function TargetSmoothing({ kind, id, list, onError }: { kind: "group" | "fader"; id: string; list: readonly SmoothedTarget[] | null; onError: (e: string) => void }) {
   const target = list?.find((x) => x.id === id);
   const listed = kind === "group" ? target?.master?.smoothing : target?.smoothing;
-  const [chosen, setChosen] = useState<{ value: Smoothing | undefined } | null>(null);
+  const listedRef = useRef(listed);
+  listedRef.current = listed;
+  // `since`: what the list said when the write passed; any later change of it (ours, or a newer one made elsewhere) wins
+  const [chosen, setChosen] = useState<{ value: Smoothing | undefined; since?: Smoothing | undefined; saved: boolean } | null>(null);
   useEffect(() => {
-    if (chosen && sameSmoothing(chosen.value, listed)) setChosen(null);
+    if (!chosen) return;
+    if (sameSmoothing(chosen.value, listed) || (chosen.saved && !sameSmoothing(chosen.since, listed))) setChosen(null);
   }, [chosen, listed]);
   // a group without a master has no fader to smooth
   if (!target || (kind === "group" && !target.master)) return null;
@@ -490,7 +494,8 @@ function TargetSmoothing({ kind, id, list, onError }: { kind: "group" | "fader";
     <SmoothingField
       value={chosen ? chosen.value : listed}
       onChange={(smoothing) => {
-        setChosen({ value: smoothing });
+        const mine = { value: smoothing, saved: false };
+        setChosen(mine);
         const smoothed = (x: SmoothedTarget) => (kind === "group" ? { ...x, master: { ...x.master!, smoothing } } : { ...x, smoothing });
         // read again first: the fader may have moved since the menu opened, its level is not ours to put back
         void cmd<SmoothedTarget[]>(`${kind}.list`)
@@ -499,7 +504,16 @@ function TargetSmoothing({ kind, id, list, onError }: { kind: "group" | "fader";
             if (!fresh) throw new Error(id);
             return cmd(`${kind}.put`, { [kind]: smoothed(fresh) });
           })
-          .catch((e: Error) => onError(e.message));
+          .then(
+            // saved: kept only until the list moves (to it, or to a newer value written elsewhere)
+            () => setChosen((c) => (c === mine ? { ...mine, saved: true, since: listedRef.current } : c)),
+            // refused: the menu says it was not saved; what was typed stays under the hand (not taken back mid-typing),
+            // and gives way at the list's next change like a saved one
+            (e: Error) => {
+              setChosen((c) => (c === mine ? { ...mine, saved: true, since: listedRef.current } : c));
+              onError(e.message);
+            },
+          );
       }}
     />
   );
