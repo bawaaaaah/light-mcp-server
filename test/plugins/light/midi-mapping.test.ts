@@ -283,6 +283,48 @@ describe("ignoreRepeats: one press sent twice is one press (decision of 2026-11-
     expect([cc(127, 0), cc(127, 40), cc(127, 80)]).to.deep.equal([1, 1, 1]);
   });
 
+  it("by controller: a second controller pressing within 150 ms goes; each its own repetitions (decision of 2026-11-18)", () => {
+    let now = 0;
+    const mapper = new MidiMapper(() => now);
+    mapper.setMappings([MappingSchema.parse({ id: "pad", input: { type: "cc", channel: 1, number: 20 }, mode: "toggle", ignoreRepeats: true, on: { command: "look.go", args: { id: "hole" } }, off: { command: "look.stop", args: { id: "hole" } } })]);
+    const cc = (at: number, port: string, client?: string) => {
+      now = at;
+      return mapper.handle(parseMidi([0xb0, 20, 127]), port, client).calls.length;
+    };
+    expect(cc(0, "USB Pad")).to.equal(1);
+    expect(cc(20, "IAC Live")).to.equal(1); // another controller: its own press
+    expect(cc(40, "USB Pad")).to.equal(0); // the first one's repetition
+    expect(cc(60, "Web MIDI · Pad", "tab-a")).to.equal(1); // a browser
+    expect(cc(80, "Web MIDI · Pad", "tab-b")).to.equal(1); // another browser with a pad of the same name
+    expect(cc(100, "Web MIDI · Pad", "tab-a")).to.equal(0);
+  });
+
+  it("the limit is exact: 149 ms after, a repetition; 150 ms after, a new press", () => {
+    const h = harness("toggle", true);
+    expect(h.cc(127, 0)).to.have.length(1);
+    expect(h.cc(127, 149)).to.deep.equal([]);
+    const g = harness("toggle", true);
+    expect(g.cc(127, 0)).to.have.length(1);
+    expect(g.cc(127, 150)).to.have.length(1);
+  });
+
+  it("a clock that went back counts as a pause: the value goes", () => {
+    const h = harness("toggle", true);
+    expect(h.cc(127, 1000)).to.have.length(1);
+    expect(h.cc(127, 900)).to.have.length(1);
+  });
+
+  it("not for a level action: a CC to a level in « trigger » keeps every value, even with the setting on", () => {
+    let now = 0;
+    const mapper = new MidiMapper(() => now);
+    mapper.setMappings([MappingSchema.parse({ id: "fader", input: { type: "cc", channel: 1, number: 20 }, mode: "trigger", ignoreRepeats: true, on: { command: "group.level", args: { id: "front" } }, levelArg: "level" })]);
+    const n = (at: number) => {
+      now = at;
+      return mapper.handle(parseMidi([0xb0, 20, 100])).calls.length;
+    };
+    expect([n(0), n(40)]).to.deep.equal([1, 1]);
+  });
+
   it("a stream of the same value (Live's chase) stays ignored: each repetition's time counts, not only the first one's", () => {
     const h = harness("toggle", true);
     expect(h.cc(127, 0)).to.have.length(1);

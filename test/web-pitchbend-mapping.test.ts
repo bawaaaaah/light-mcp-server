@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { MidiMapper, MappingSchema } from "../src/plugins/light/midi/mapping.js";
-import { PITCHBEND_REST, bendThreshold, build, keptOf, newMapping, wheelRangeOf, withInputType, withWheelRange, type MappingDraft } from "../web/src/mappingActions.js";
+import { PITCHBEND_REST, bendThreshold, build, ignoreRepeatsApplies, keptOf, newMapping, wheelRangeOf, withInputType, withWheelRange, type MappingDraft } from "../web/src/mappingActions.js";
 
 /**
  * A pitch bend in the mapping editor (docs/specs/midi.md, « Pitch bend »): the channel's wheel, played like a CC on its
@@ -66,5 +66,15 @@ describe("pitch bend mappings, as the editor builds them", () => {
     expect(commands(8192)).to.deep.equal([]); // at rest
     expect(commands(16383)).to.deep.equal([true]);
     expect(commands(8192)).to.deep.equal([false]);
+  });
+
+  it("« ignore repeats » kept by build() only where it applies: a CC button in toggle or trigger", () => {
+    const cc = { ...newMapping(), input: { type: "cc" as const, channel: 1, number: 20 }, ignoreRepeats: true };
+    expect(build({ ...cc, mode: "toggle" }, "look", "hole").ignoreRepeats).to.equal(true);
+    expect(build({ ...cc, mode: "trigger" }, "look", "hole").ignoreRepeats).to.equal(true);
+    expect(build({ ...cc, mode: "latch" }, "look", "hole")).to.not.have.property("ignoreRepeats");
+    expect(build({ ...cc, mode: "toggle" }, "dca", "front")).to.not.have.property("ignoreRepeats"); // a level action
+    expect(build({ ...cc, mode: "toggle", input: { type: "note", channel: 1, number: 20 } }, "look", "hole")).to.not.have.property("ignoreRepeats");
+    expect(ignoreRepeatsApplies(build({ ...cc, mode: "latch" }, "program", "p1"))).to.equal(true); // a program change is a trigger
   });
 });

@@ -110,7 +110,18 @@ export function actionOf(m: MappingDraft): { action: Action; target: string } {
 export const colourGroupOf = (m: MappingDraft): string => (m.on.command === "colour.apply" ? plain(m.on.args.group) : "");
 
 /** `colourGroup`: for the « colour » action, the group whose fixtures it colours ("" = every fixture; absent: the mapping's own). */
+/** Where « ignore repeats » applies (midi/mapping.ts): a CC button, in « toggle » or « trigger », with no level. */
+export const ignoreRepeatsApplies = (m: MappingDraft): boolean => m.input.type === "cc" && (m.mode === "toggle" || m.mode === "trigger") && !m.levelArg;
+
+/** The mapping built for an action; « ignore repeats » kept only where it applies (its mode, type and action). */
 export function build(m: MappingDraft, action: Action, target: string, colourGroup?: string): MappingDraft {
+  const built = buildAction(m, action, target, colourGroup);
+  if (ignoreRepeatsApplies(built) || built.ignoreRepeats === undefined) return built;
+  const { ignoreRepeats: _dropped, ...rest } = built;
+  return rest;
+}
+
+function buildAction(m: MappingDraft, action: Action, target: string, colourGroup?: string): MappingDraft {
   const base = { ...m, off: undefined, levelArg: undefined, threshold: m.threshold ?? 0 };
   switch (action) {
     case "look":

@@ -7,7 +7,7 @@ import { useEffect, useId, useState, type ReactElement } from "react";
 import { cmd } from "../api";
 import { useT } from "../i18n-context";
 import { slug, uniqueId } from "../util";
-import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, bendThreshold, build, isLevelAction, wheelRangeOf, withWheelRange, type WheelRange, actionOf, colourGroupOf, keptOf, newMapping, withInputType, type Action, type KeptInput, type LearntInput, type MappingDraft, type MidiType } from "../mappingActions";
+import { ACTIONS, MIDI_TYPES, NO_PROGRAM, answersEveryValue, bendThreshold, build, ignoreRepeatsApplies, isLevelAction, wheelRangeOf, withWheelRange, type WheelRange, actionOf, colourGroupOf, keptOf, newMapping, withInputType, type Action, type KeptInput, type LearntInput, type MappingDraft, type MidiType } from "../mappingActions";
 import { useColourPresets } from "../hooks/useColourPresets";
 import { EditorActions } from "./EditorActions";
 import { fill } from "../intentions";
@@ -209,13 +209,15 @@ export function MappingEditor({ initial, existing, onClose }: { initial: Mapping
         <p className="hint">{action === "position" ? t.positions.modeLockedHint : action === "colour" ? t.colours.modeHint : modeLocked ? t.modeLockedHint : action === "freeze" && m.mode === "trigger" ? t.motionLock.midiTriggerHint : t.modeHints[m.mode]}</p>
         {m.input.type !== "programchange" && <p className="hint">{t.thresholdHelp}</p>}
         {/* a CC button in « toggle » or « trigger »: one press its controller (or Live) sends twice can count once */}
-        {m.input.type === "cc" && !modeLocked && (m.mode === "toggle" || m.mode === "trigger") && (
-          <label className="row" title={t.ignoreRepeatsHelp}>
-            <input type="checkbox" checked={m.ignoreRepeats ?? false} aria-describedby={repeatsHintId} onChange={(e) => setM({ ...m, ignoreRepeats: e.target.checked || undefined })} /> {t.ignoreRepeats}
+        {ignoreRepeatsApplies(build(m, action, target, colourGroup)) && (
+          <>
+            <label className="row">
+              <input type="checkbox" checked={m.ignoreRepeats ?? false} aria-describedby={repeatsHintId} onChange={(e) => setM({ ...m, ignoreRepeats: e.target.checked || undefined })} /> {t.ignoreRepeats}
+            </label>
             <small className="hint" id={repeatsHintId}>
               {t.ignoreRepeatsHelp}
             </small>
-          </label>
+          </>
         )}
       </fieldset>
       <fieldset className="mapping-group">

@@ -74,9 +74,10 @@ export const MappingSchema = z.object({
   followAftertouch: z.boolean().default(false),
   pickup: z.boolean().default(false),
   /**
-   * A CC in « toggle » or « trigger »: a value equal to the previous one this mapping received, within `REPEAT_MS` of it, is
-   * ignored (a controller or Live sending the same value twice for one press; decision of 2026-11-18). Off by default: a
-   * pad sending CC 127 at each press toggles at each press. A real new press, after a pause or another value, goes.
+   * A CC button (« toggle » or « trigger », no level) : a value equal to the previous one this mapping received from the
+   * same controller (its input, and its client for Web MIDI), within `REPEAT_MS` of it, is ignored (a controller or Live
+   * sending one press twice; decisions of 2026-11-18). Off by default: a pad sending CC 127 at each press toggles at each
+   * press. A real new press, after a pause or another value, or from another controller, goes.
    */
   ignoreRepeats: z.boolean().optional(),
   feedback: z.enum(["none", "note", "cc"]).default("note"),
@@ -128,9 +129,8 @@ function release(m: Mapping, out: MappingOutput): void {
 export const REPEAT_MS = 150;
 
 interface MappingState {
-  /** For `ignoreRepeats`: the last raw value this mapping received, and when. */
-  lastRaw?: number;
-  lastAt?: number;
+  /** For `ignoreRepeats`: per controller (input and client), the last raw value this mapping received from it, and when. */
+  received?: Map<string, { raw: number; at: number }>;
   active: boolean;
   held: boolean;
   level: number;
@@ -153,8 +153,11 @@ const portOfKey = (key: string): string => key.slice(0, key.indexOf(KEY_SEP));
 export type ReleaseCause = "input" | "profile" | "mapping";
 
 export class MidiMapper {
-  /** `now`: the clock, in ms (injected: the repetitions of `ignoreRepeats` are told apart by time). */
-  constructor(private readonly now: () => number = () => Date.now()) {}
+  /**
+   * `now`: the clock, in ms (injected: the repetitions of `ignoreRepeats` are told apart by time); monotonic by default
+   * (`performance.now()`), so a wall clock set back never makes a new press look like a repetition.
+   */
+  constructor(private readonly now: () => number = () => performance.now()) {}
 
   private mappings: Mapping[] = [];
   private readonly state = new Map<string, MappingState>();
@@ -241,12 +244,16 @@ export class MidiMapper {
     return this.mappings;
   }
 
-  /** Whether `raw` repeats the previous value within `REPEAT_MS` (the time of each value received kept, a repetition's too). */
-  private repeated(s: MappingState, raw: number): boolean {
+  /**
+   * Whether `raw` repeats the previous value this controller (`from`) sent within `REPEAT_MS` (the time of each value kept,
+   * a repetition's too). A clock that went back (it should not: monotonic) counts as a pause: the value goes.
+   */
+  private repeated(s: MappingState, raw: number, from: string): boolean {
     const now = this.now();
-    const repeat = s.lastRaw === raw && s.lastAt !== undefined && now - s.lastAt < REPEAT_MS;
-    s.lastRaw = raw;
-    s.lastAt = now;
+    const received = (s.received ??= new Map<string, { raw: number; at: number }>());
+    const before = received.get(from);
+    const repeat = before !== undefined && before.raw === raw && now >= before.at && now - before.at < REPEAT_MS;
+    received.set(from, { raw, at: now });
     return repeat;
   }
 
@@ -334,7 +341,7 @@ export class MidiMapper {
             release(m, out);
           }
         }
-      } else if (m.input.type === "cc" && msg.type === "cc" && m.ignoreRepeats && (m.mode === "toggle" || m.mode === "trigger") && this.repeated(s, msg.value)) {
+      } else if (msg.type === "cc" && m.ignoreRepeats && !m.levelArg && (m.mode === "toggle" || m.mode === "trigger") && this.repeated(s, msg.value, holdKey(port, client))) {
         continue; // the same value again, too soon after: one press sent twice, not a new one
       } else if (m.input.type === "cc" || m.input.type === "pitchbend") {
         const raw = msg.type === "cc" ? msg.value : msg.type === "pitchbend" ? msg.value >> 7 : 0;
