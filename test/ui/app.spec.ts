@@ -6689,6 +6689,41 @@ test("MIDI mapping: choosing pitch bend offers the wheel's rest as threshold, no
   expect(errors).toEqual([]);
 });
 
+test("MIDI mapping: « ignore repeats », offered for a CC in toggle or trigger only, unticked by default, saved and read back", async ({ page }) => {
+  const errors = watchErrors(page);
+  await login(page);
+  await page.locator("nav.pages button", { hasText: "MIDI" }).click();
+  await page.getByRole("button", { name: "+ Nouveau mapping" }).click();
+  const editor = page.locator(".mapping-editor");
+  const repeats = editor.getByRole("checkbox", { name: /Ignorer les répétitions/ });
+  await expect(repeats).toHaveCount(0); // a note: not offered
+  await editor.getByRole("combobox", { name: "Type", exact: true }).selectOption("cc");
+  await editor.getByLabel("Note / CC").fill("33");
+  const mode = editor.getByRole("combobox", { name: "Mode" });
+  await mode.selectOption("toggle");
+  await expect(repeats).not.toBeChecked(); // unticked by default
+  await expect(repeats).toHaveAccessibleDescription(/moins de 150 ms/);
+  await mode.selectOption("latch");
+  await expect(repeats).toHaveCount(0); // a latch: not offered
+  await mode.selectOption("trigger");
+  await repeats.check();
+  await editor.getByLabel("Cible").selectOption("hole");
+  await editor.getByLabel("Libellé").fill("Pad répété");
+  await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  const saved = async () => ((await api(page, "midi.mapping.list")) as { id: string; label: string; ignoreRepeats?: boolean }[]).find((m) => m.label === "Pad répété");
+  try {
+    expect(await saved()).toMatchObject({ ignoreRepeats: true });
+    await page.getByRole("button", { name: "Modifier Pad répété" }).click();
+    await expect(repeats).toBeChecked();
+    await editor.getByRole("button", { name: "Fermer" }).click();
+  } finally {
+    const m = await saved();
+    if (m) await api(page, "midi.mapping.delete", { id: m.id });
+  }
+  expect(errors).toEqual([]);
+});
+
 test("MIDI mapping: a wheel to a DCA, its upper half by default, then its whole travel, saved and read back", async ({ page }) => {
   const errors = watchErrors(page);
   await login(page);
@@ -6824,7 +6859,9 @@ test("Web MIDI: a right missing (403) stops the relay, says how to resume, and l
   expect(reached).toBe(3);
   await relay.uncheck();
   await expect(alert).toHaveCount(0);
-  await page.waitForTimeout(600); // the stopped relay's « closed », refused (403), comes now: it must not stop the next one
+  // the stopped relay's « closed » goes once its last requests are answered (~400 ms), refused (403) a second later: it
+  // comes now, Web MIDI off, and must not stop the next relay
+  await page.waitForTimeout(1300);
   await relay.check(); // on again, as the alert says: tried again, nothing said before
   await expect(status).toHaveText("Pad");
   await expect(alert).toHaveCount(0);
@@ -6857,7 +6894,7 @@ test("Web MIDI: a batch dropped by the server (429) goes again at the next windo
   await page.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).uncheck();
 });
 
-test("Web MIDI: a push dropped late after Web MIDI is switched off is not sent again", async ({ page }) => {
+test("Web MIDI: a push dropped late as Web MIDI is switched off goes again before its « closed », never after", async ({ page }) => {
   const play = await fakeWebMidi(page);
   const order: string[] = [];
   let n = 0;
@@ -6883,7 +6920,8 @@ test("Web MIDI: a push dropped late after Web MIDI is switched off is not sent a
   await play([0xe0, 0, 127]);
   await relay.uncheck();
   await page.waitForTimeout(800);
-  expect(order).toEqual(["in 224,0,127", "closed"]); // never the push again after « closed »: nothing would release it
+  // the relay's last flush is let go again once dropped (what « keep » would leave as it is), then « closed », then nothing
+  expect(order).toEqual(["in 224,0,127", "in 224,0,127", "closed"]);
 });
 
 test("Web MIDI: an input unplugged while its push is dropped: never sent again after its « closed »", async ({ page }) => {

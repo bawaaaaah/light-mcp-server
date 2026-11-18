@@ -473,7 +473,7 @@ describe("server end to end", function () {
     const batcher = new MidiBatcher(
       (batch, done) => {
         requests++;
-        relayOver(link.channel, "midi.in", batch, { ...outcome, dropped: done.dropped });
+        relayOver(link.channel, "midi.in", batch, { ...outcome, dropped: done.dropped, settled: done.settled });
       },
       (fn, ms) => setTimeout(fn, ms),
       (h) => clearTimeout(h as ReturnType<typeof setTimeout>),

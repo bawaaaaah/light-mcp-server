@@ -13,7 +13,9 @@
  * waits again for the next window, unless a newer one of its control, of its key (a note's channel and number, a program
  * change's channel) or, for the transport, of its input already went or waits: so a rest dropped again and again still
  * goes, one request per window at most, never in a burst, and never an older message after a newer one. `forgetPort`
- * (an input unplugged) and `stop` (the relay ending) let nothing of theirs go again. Pure of the browser: the clock is given.
+ * (an input unplugged) lets nothing of it from before go again; `finish` (the relay ending) lets what its last flush sent
+ * go again a few windows at most, then stops for good (`stop`: no window, a late 429 ignored). Pure of the browser: the
+ * clock is given.
  */
 import { MAX_BATCH } from "../../src/plugins/light/midi/relay-limits.js";
 
@@ -42,6 +44,9 @@ const keyOf = (m: RelayedMessage): string => {
   const kind = m.bytes[0]! & 0xf0;
   return kind === 0x80 || kind === 0x90 ? `${m.port}\u0000note:${m.bytes[0]! & 0x0f}:${m.bytes[1]}` : `${m.port}\u0000${m.bytes[0]}`;
 };
+/** How many windows the relay's last flush may be let go again while it ends (~120 ms): bounded, never a loop. */
+const FINAL_TRIES = 8;
+
 /** The transport and the other system messages (Start, Continue, Stop, Song Position…): they concern their whole input. */
 const system = (status: number): boolean => status >= 0xf0;
 /** A control's value: a pitch bend's 14 bits, a channel aftertouch's pressure, a CC's or a poly aftertouch's value. */
@@ -73,15 +78,20 @@ export class MidiBatcher {
   private readonly keySent = new Map<string, number>();
   /** Per input, the order of the last message of it that went (a transport message is stale after any newer one). */
   private readonly portSent = new Map<string, number>();
-  /** Inputs unplugged: what the server drops of theirs is not sent again (until they send again). */
-  private readonly gone = new Set<string>();
+  /** Inputs unplugged: the order they were forgotten at; what the server drops of theirs from before is not sent again. */
+  private readonly forgotten = new Map<string, number>();
   /** The relay ended: nothing goes any more, a late 429 changes nothing. */
   private stopped = false;
+  /** The relay ending (`finish`): no new message taken, what the last flush sent is let go again a few times, then stopped. */
+  private ending: { tries: number; done: () => void } | undefined;
+  /** Requests not answered yet (accepted, refused or dropped). */
+  private inFlight = 0;
   private seq = 0;
   private timer: unknown;
 
   constructor(
-    private readonly send: (batch: RelayBatch, done: { dropped: () => void }) => void,
+    /** `done.dropped`: the server dropped it (429); `done.settled`: any other answer (or none: the link went). */
+    private readonly send: (batch: RelayBatch, done: { dropped: () => void; settled: () => void }) => void,
     private readonly later: (fn: () => void, ms: number) => unknown,
     private readonly cancel: (handle: unknown) => void,
     private readonly everyMs = 15,
@@ -89,8 +99,7 @@ export class MidiBatcher {
 
   /** A message received from one of the page's inputs. */
   push(port: string, bytes: number[]): void {
-    if (!bytes.length || this.stopped) return;
-    this.gone.delete(port); // plugged in again
+    if (this.stopped || this.ending) return; // the page filters empty messages out
     const arrived: Arrived = { seq: ++this.seq, message: { port, bytes } };
     if (!continuous(bytes[0]!)) {
       // a note: at once, with what waits; the window goes on for the controls
@@ -130,9 +139,23 @@ export class MidiBatcher {
     this.timer = undefined;
   }
 
-  /** An input unplugged: what waits of it is forgotten, and what the server drops of it later is not sent again. */
+  /**
+   * The relay ends while the server may still drop what it sends last (a rest the « keep » setting would leave held): what
+   * waits goes, what is dropped of it goes again at the next windows (`FINAL_TRIES` at most), and once every request is
+   * answered the relay stops for good; then the inputs may be said gone.
+   */
+  finish(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    return new Promise((done) => {
+      this.ending = { tries: 0, done };
+      this.flush();
+      this.checkEnd();
+    });
+  }
+
+  /** An input unplugged: what waits of it is forgotten, and what the server drops of it from before is not sent again. */
   forgetPort(port: string): void {
-    this.gone.add(port);
+    this.forgotten.set(port, this.seq);
     this.discrete = this.discrete.filter((a) => a.message.port !== port);
     for (const c of this.controls.values()) {
       if (c.last?.message.port !== port) continue;
@@ -145,8 +168,10 @@ export class MidiBatcher {
     if (this.timer !== undefined) return; // after stop() nothing opens one: no push, and dropped() sends nothing again
     this.timer = this.later(() => {
       this.timer = undefined;
+      if (this.ending && ++this.ending.tries > FINAL_TRIES) this.giveUp();
       // something went: a new window while it moves; else the page is at rest until its next message
-      if (this.emit()) this.open();
+      else if (this.emit()) this.open();
+      this.checkEnd();
     }, this.everyMs);
   }
 
@@ -175,9 +200,36 @@ export class MidiBatcher {
     }
     for (let i = 0; i < arrived.length; i += MAX_BATCH) {
       const part = arrived.slice(i, i + MAX_BATCH);
-      this.send({ messages: part.map((a) => a.message) }, { dropped: () => this.dropped(part) });
+      let answered = false;
+      const answer = (dropped: boolean) => {
+        if (answered) return;
+        answered = true;
+        this.inFlight--;
+        if (dropped) this.dropped(part);
+        this.checkEnd();
+      };
+      this.inFlight++;
+      this.send({ messages: part.map((a) => a.message) }, { dropped: () => answer(true), settled: () => answer(false) });
     }
     return true;
+  }
+
+  /** The relay ending, every request answered and nothing waiting: stopped for good, and said. */
+  private checkEnd(): void {
+    if (!this.ending || this.inFlight > 0 || this.timer !== undefined) return;
+    const done = this.ending.done;
+    this.ending = undefined;
+    this.stop();
+    done();
+  }
+
+  /** Too many tries while ending: what still waits is let go (the inputs are said gone right after). */
+  private giveUp(): void {
+    this.discrete = [];
+    for (const c of this.controls.values()) {
+      c.turns = [];
+      c.last = undefined;
+    }
   }
 
   /**
@@ -187,7 +239,8 @@ export class MidiBatcher {
    */
   private dropped(arrived: Arrived[]): void {
     if (this.stopped) return; // the relay ended: nothing goes again
-    arrived = arrived.filter((a) => !this.gone.has(a.message.port)); // an input unplugged: nothing of it either
+    // an input unplugged: nothing of it from before is sent again (what it sent once plugged in again, yes)
+    arrived = arrived.filter((a) => a.seq > (this.forgotten.get(a.message.port) ?? 0));
     const latest = new Map<string, Arrived>();
     for (const a of arrived) if (continuous(a.message.bytes[0]!)) latest.set(controlOf(a.message), a);
     let again = false;
@@ -212,8 +265,8 @@ export class MidiBatcher {
     if (again) this.open();
   }
 
-  /** Whether something of this input waits to go. */
+  /** Whether a value of this input waits in the window (a note that waits again went already: `portSent` has it). */
   private waits(port: string): boolean {
-    return this.discrete.some((a) => a.message.port === port) || [...this.controls.values()].some((c) => c.last?.message.port === port);
+    return [...this.controls.values()].some((c) => c.last?.message.port === port);
   }
 }

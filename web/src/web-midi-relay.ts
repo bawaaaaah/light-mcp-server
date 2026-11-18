@@ -17,6 +17,8 @@ export interface RelayOutcome {
   forbidden: () => void;
   /** Dropped by the server past the flow's rate (429): counted and said there; the page may send it again. */
   dropped?: () => void;
+  /** Any other end: accepted, refused, or not sent at all (offline). */
+  settled?: () => void;
 }
 
 /** The refusal the server gives a connection already said closed: the only one a new connection cures. */
@@ -31,17 +33,19 @@ const DROPPED = 429;
  * stops the relay without touching the connection every page shares.
  */
 export function relayOver(channel: Pick<Channel, "online" | "request" | "reconnect">, command: string, body: unknown, outcome: RelayOutcome): void {
-  if (!channel.online) return;
+  if (!channel.online) return outcome.settled?.();
   void channel.request("POST", `${COMMANDS}${command}`, body).then(
     (r) => {
-      if (r.status === 200) return outcome.ok();
       if (r.status === DROPPED) return outcome.dropped?.();
+      outcome.settled?.();
+      if (r.status === 200) return outcome.ok();
       if (r.status === FORBIDDEN) return outcome.forbidden();
       const why = (r.body as { error?: string } | null)?.error ?? String(r.status);
       outcome.refused(why);
       if (r.status === CLOSED) channel.reconnect();
     },
     (e: Error) => {
+      outcome.settled?.();
       if (e.message === "offline") return; // the connection went meanwhile: dropped, as while reconnecting
       outcome.refused(e.message);
     },

@@ -177,15 +177,16 @@ const keepWebMidi = (on: boolean): void => {
 
 /** Held by the one tab of this browser that relays its Web MIDI: the others wait for it (the same devices, twice). */
 const WEB_MIDI_LOCK = "light-web-midi-relay";
+
+/** The hub's channel as `useSyncExternalStore` reads it: one subscription for every render. */
+const subscribeLink = (fn: () => void) => control.onStatus(fn);
+const linkState = () => control.state;
+
 /**
  * Web MIDI: the controllers plugged into this browser's device relay their messages to the server, over the live control
  * connection (`relayOver`), every input of the page in one batch per 15 ms window (`MidiBatcher`). One tab per browser
  * relays (a Web Lock): another waits, and says so.
  */
-/** The hub's channel as `useSyncExternalStore` reads it: one subscription for every render. */
-const subscribeLink = (fn: () => void) => control.onStatus(fn);
-const linkState = () => control.state;
-
 function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waiting: boolean; paused: boolean; stopped: boolean } {
   const t = useT();
   const [inputs, setInputs] = useState<string[]>([]);
@@ -220,7 +221,7 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waitin
     let relayed: string[] = [];
     /** The whole page's inputs in one request per 15 ms window (midi-coalesce.ts); a batch dropped (429) is given back to it. */
     const batcher = new MidiBatcher(
-      (batch, done) => relayOver(control, "midi.in", batch, { ...outcome, dropped: done.dropped }),
+      (batch, done) => relayOver(control, "midi.in", batch, { ...outcome, dropped: done.dropped, settled: done.settled }),
       (fn, ms) => setTimeout(fn, ms),
       (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     );
@@ -285,11 +286,13 @@ function useWebMidi(enabled: boolean): { inputs: string[]; error: string; waitin
       setWaiting(false);
       access?.inputs.forEach((input) => (input.onmidimessage = null));
       if (access) access.onstatechange = null;
-      // relayed no more (Web MIDI off, the page left): what waits goes, then the relay stops (a late 429 sends nothing
-      // again), then the inputs are said gone
-      batcher.flush();
-      batcher.stop();
-      for (const name of relayed) relayOver(control, "midi.web.closed", { port: webMidiPort(name) }, outcome);
+      // relayed no more (Web MIDI off, the page left): what waits goes, and what the server drops of it goes again (a
+      // rest the « keep » setting would leave held), a few windows at most; then the relay stops (a late 429 sends
+      // nothing again), then the inputs are said gone
+      const gone = relayed;
+      void batcher.finish().then(() => {
+        for (const name of gone) relayOver(control, "midi.web.closed", { port: webMidiPort(name) }, outcome);
+      });
       release();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `t` only words the error: a language change must not close and reopen the MIDI access
