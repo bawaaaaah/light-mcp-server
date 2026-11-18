@@ -12,11 +12,10 @@ Le travail continue avec un autre modèle. Branche de travail : `fix/t2-look-res
 
 **Intégré et poussé** (tête `4ebb8a1`) : T43 à T49, T51, T52, T53, T55, le correctif du test instable de la Bibliothèque, et les restes des revues côté serveur et tests.
 
-**Deux branches finies mais pas encore intégrées**, chacune dans son worktree (`.claude/worktrees/…`, verrouillé par Claude Code ; on peut aussi les reprendre par leur nom de branche) :
+**Branches** :
 
-1. **T54, `refactor/t54-dashboard-widgets`** (worktree `agent-a2365a8aac90c458f`, 21 commits sur `4ebb8a1`, dernier `b27fbb9`). Un module par widget, puis dix-huit revues sur la lecture des listes du Live (alerte « Relire », focus, erreurs par liste, lissage du menu lu dans les listes de la page). Détail dans la fiche T54 plus bas.
-   - **Reste à faire** : relire `b27fbb9` (le lissage lu dans les listes de la page ; vérifier qu'une écriture refusée ne laisse pas affichée une valeur non enregistrée, et qu'une valeur choisie puis changée ailleurs s'affiche juste), puis vérifications complètes, puis `git merge --ff-only`.
-2. **Restes des revues côté web, `fix/leftovers-web`** (worktree `agent-a44c9c7c016dfe552`, 27 commits sur `9257450`, dernier `1813e09`). **À rebaser** sur la branche de travail, **après** T54 (conflits attendus dans les fichiers MIDI du web et `WidgetMenu.tsx`). Contenu, toutes décisions dans `decisions.md` et la spec MIDI :
+1. **T54 : intégré le 2026-11-18** (dix-neuf revues, fiche plus bas).
+2. **Restes des revues côté web, `fix/leftovers-web`** (worktree `agent-a44c9c7c016dfe552`, 27 commits sur `9257450`, dernier `1813e09`). **À rebaser** sur la branche de travail (T54 est intégré ; conflits attendus dans les fichiers MIDI du web et `WidgetMenu.tsx`). Contenu, toutes décisions dans `decisions.md` et la spec MIDI :
    - éditeur MIDI : le pitch bend (molette) ; `midi.learn` apprend une molette ; focus de la Bibliothèque en fin de page ;
    - molette : une action par poussée, réarmement par Start / Continue / SPP d'Ableton, tenues par port et par client, course « moitié haute » ou « course entière » pour un niveau, pas de retour LED par défaut ;
    - réglage « relâcher / conserver » quand une entrée disparaît, par type d'entrée (relâcher par défaut) ;
