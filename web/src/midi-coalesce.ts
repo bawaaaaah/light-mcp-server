@@ -4,13 +4,15 @@
  * - notes, program changes and the transport (Start, Continue, Song Position): every one, in the order they came;
  * - per continuous control that moved (a CC, a wheel, an aftertouch: its input, status, channel and number): every value
  *   where it turned within the window (its successive extremes, which a window's minimum and maximum alone would not all
- *   be: 64 → 100 → 30 → 100 → 64 turns three times), in the order they came, then its last value — so no crossing of any
- *   threshold is lost, whatever the turns the control made. A value equal to the one before it is not repeated.
- * The first message of a gesture goes at once, opening the window; a note goes at once too, with what waits. A batch the
- * server dropped (its 429) is sent again once, marked as such, merged with what came since (per control, the most recent
- * value only: never an older one after a newer), and a resend is never sent again: if it is dropped too, only the last
- * values go at the next window. Pure of the browser: the clock is given.
+ *   be: 64 → 100 → 30 → 100 → 64 turns three times; a control never sent yet, its first value too), in the order they
+ *   came, then its last value — so no crossing of any threshold is lost. A value equal to the one before it is not repeated.
+ * The first message of a gesture goes at once, opening the window; a note goes at once too, with what waits. A batch is
+ * cut to `MAX_BATCH` messages (the server refuses more), the parts sent in order. A message the server dropped (its 429)
+ * waits again for the next window, unless a newer one of its control or of its key (a note's channel and number) already
+ * went or waits: so a rest dropped again and again still goes, one request per window at most, never in a burst, and never
+ * an older value after a newer one. Pure of the browser: the clock is given.
  */
+import { MAX_BATCH } from "../../src/plugins/light/midi/relay-limits.js";
 
 /** One MIDI message of an input. */
 export interface RelayedMessage {
@@ -20,8 +22,6 @@ export interface RelayedMessage {
 /** What one request carries. */
 export interface RelayBatch {
   messages: RelayedMessage[];
-  /** Sent again after the server dropped it (its 429): never sent a third time. */
-  resend?: true;
 }
 
 /** The message types sent by window: CC, pitch bend, channel and poly aftertouch. */
@@ -34,6 +34,11 @@ const controlOf = (m: RelayedMessage): string => {
   const kind = m.bytes[0]! & 0xf0;
   return kind === 0xb0 || kind === 0xa0 ? `${m.port}\u0000${m.bytes[0]}:${m.bytes[1]}` : `${m.port}\u0000${m.bytes[0]}`;
 };
+/** A discrete message's key, for « a newer one already went »: a note by its channel and number (on and off alike). */
+const keyOf = (m: RelayedMessage): string => {
+  const kind = m.bytes[0]! & 0xf0;
+  return kind === 0x80 || kind === 0x90 ? `${m.port}\u0000note:${m.bytes[0]! & 0x0f}:${m.bytes[1]}` : `${m.port}\u0000${m.bytes[0]}`;
+};
 /** A control's value: a pitch bend's 14 bits, a channel aftertouch's pressure, a CC's or a poly aftertouch's value. */
 const valueOf = (bytes: readonly number[]): number => {
   const kind = bytes[0]! & 0xf0;
@@ -44,8 +49,6 @@ const valueOf = (bytes: readonly number[]): number => {
 interface Arrived {
   seq: number;
   message: RelayedMessage;
-  /** Waiting again because its resend was dropped too: if dropped once more, given up (no loop). */
-  retry?: true;
 }
 interface Control {
   /** The value that went last, and the order it came in. */
@@ -60,12 +63,12 @@ interface Control {
 
 export class MidiBatcher {
   private readonly controls = new Map<string, Control>();
-  /** Notes, program changes, transport: waiting for the batch they go in (only while a window is being built). */
+  /** Notes, program changes, transport: waiting for the batch they go in. */
   private discrete: Arrived[] = [];
+  /** Per discrete key, the order of the last message of it that went. */
+  private readonly keySent = new Map<string, number>();
   private seq = 0;
   private timer: unknown;
-  /** Batches sent so far: a resend of an older one never carries its notes after a newer batch went. */
-  private batches = 0;
 
   constructor(
     private readonly send: (batch: RelayBatch, done: { dropped: () => void }) => void,
@@ -81,7 +84,7 @@ export class MidiBatcher {
     if (!continuous(bytes[0]!)) {
       // a note: at once, with what waits; the window goes on for the controls
       this.discrete.push(arrived);
-      this.emit(false);
+      this.emit();
       this.open();
       return;
     }
@@ -92,13 +95,13 @@ export class MidiBatcher {
     const before = c.last ? valueOf(c.last.message.bytes) : c.sent;
     const dir = before === undefined ? 0 : Math.sign(v - before);
     if (before !== undefined && dir === 0) return; // the same value again: nothing new
-    // it turned: the value before is one of its extremes, kept (a control never sent yet: its first value too)
+    // it turned (or never sent yet: its first value): the value before is one of its extremes, kept
     if (c.last && dir !== c.dir) c.turns.push(c.last);
     c.dir = dir;
     c.last = arrived;
     if (this.timer === undefined) {
       // the first message of a gesture: at once, opening the window
-      this.emit(false);
+      this.emit();
       this.open();
     }
   }
@@ -107,7 +110,7 @@ export class MidiBatcher {
   flush(): void {
     if (this.timer !== undefined) this.cancel(this.timer);
     this.timer = undefined;
-    this.emit(false);
+    this.emit();
   }
 
   private open(): void {
@@ -115,11 +118,11 @@ export class MidiBatcher {
     this.timer = this.later(() => {
       this.timer = undefined;
       // something went: a new window while it moves; else the page is at rest until its next message
-      if (this.emit(false)) this.open();
+      if (this.emit()) this.open();
     }, this.everyMs);
   }
 
-  /** What waits, in the order it came: notes all, per control its min and max (when new), then its last. */
+  /** What waits: the notes, and per control its turns then its last value (each control's own order kept). */
   private take(): Arrived[] {
     const out: Arrived[] = [...this.discrete];
     this.discrete = [];
@@ -130,57 +133,47 @@ export class MidiBatcher {
       c.sent = valueOf(c.last.message.bytes);
       c.sentSeq = c.last.seq;
       c.turns = [];
-      c.last = undefined;
-      c.dir = 0;
+      c.last = undefined; // its direction starts again with its next value (no turn without a value before it)
     }
-    return out.sort((a, b) => a.seq - b.seq);
+    return out;
   }
 
-  /** Sends one batch of what waits (a resend's `extra` merged in front); true if anything went. */
-  private emit(resend: boolean, extra: Arrived[] = []): boolean {
-    const arrived = [...extra, ...this.take()].sort((a, b) => a.seq - b.seq);
+  /** Sends what waits, in the order it came, cut to `MAX_BATCH` messages per request; true if anything went. */
+  private emit(): boolean {
+    const arrived = this.take().sort((a, b) => a.seq - b.seq);
     if (!arrived.length) return false;
-    // only values whose resend was dropped: a resend itself (dropped again, given up)
-    if (arrived.every((a) => a.retry)) resend = true;
-    const batch: RelayBatch = { messages: arrived.map((a) => a.message), ...(resend ? { resend: true as const } : {}) };
-    const number = ++this.batches;
-    this.send(batch, { dropped: () => this.dropped(arrived, number, resend) });
+    for (const a of arrived) if (!continuous(a.message.bytes[0]!)) this.keySent.set(keyOf(a.message), a.seq);
+    for (let i = 0; i < arrived.length; i += MAX_BATCH) {
+      const part = arrived.slice(i, i + MAX_BATCH);
+      this.send({ messages: part.map((a) => a.message) }, { dropped: () => this.dropped(part) });
+    }
     return true;
   }
 
   /**
-   * The server dropped a batch (its 429). Sent again once, marked, merged with what came since: per control only its most
-   * recent value (one newer already sent or waiting wins), its notes only if no batch went after it. A resend dropped in
-   * turn is not sent again: only its controls' last values go at the next window, if nothing newer came.
+   * The server dropped a batch (its 429): each of its messages waits again for the next window, unless a newer one of its
+   * control or key already went or waits. One request per window at most: a value dropped again and again still goes,
+   * never in a burst.
    */
-  private dropped(arrived: Arrived[], number: number, wasResend: boolean): void {
+  private dropped(arrived: Arrived[]): void {
     const latest = new Map<string, Arrived>();
-    const notes: Arrived[] = [];
-    for (const a of arrived) {
-      if (!continuous(a.message.bytes[0]!)) notes.push(a);
-      else latest.set(controlOf(a.message), a);
-    }
-    const kept: Arrived[] = [];
+    for (const a of arrived) if (continuous(a.message.bytes[0]!)) latest.set(controlOf(a.message), a);
+    let again = false;
     for (const [key, a] of latest) {
       const c = this.controls.get(key)!;
-      // something newer for it already went (a later batch), or waits (it goes with what follows): this one is stale
-      if (c.sentSeq > a.seq || c.last) continue;
-      if (wasResend) {
-        // the resend dropped too: its last value only, once, at the next window; a value already given that chance, given up
-        if (a.retry) continue;
-        c.last = { ...a, retry: true };
-        c.turns = [];
-        c.dir = 0;
-        c.sent = undefined;
-        continue;
-      }
-      kept.push(a);
+      if (c.sentSeq > a.seq || c.last) continue; // a newer value went, or waits: this one is stale
+      c.last = a; // its last value, sent at the next window even though it went (it was not applied)
+      again = true;
     }
-    if (wasResend) {
-      if (latest.size) this.open();
-      return;
+    for (const a of arrived) {
+      if (continuous(a.message.bytes[0]!)) continue;
+      const key = keyOf(a.message);
+      // a newer message of its key (a note off after its note on) went: this one would come after it (one that waits
+      // again went too, so it is counted there)
+      if ((this.keySent.get(key) ?? 0) > a.seq) continue;
+      this.discrete.push(a);
+      again = true;
     }
-    const resent = [...(number === this.batches ? notes : []), ...kept];
-    if (resent.length || [...this.controls.values()].some((c) => c.last)) this.emit(true, resent);
+    if (again) this.open();
   }
 }

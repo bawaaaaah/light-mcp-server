@@ -6829,7 +6829,7 @@ test("Web MIDI: a right missing (403) stops the relay, says how to resume, and l
   await relay.uncheck();
 });
 
-test("Web MIDI: a batch dropped by the server (429) is sent again once, marked as a resend", async ({ page }) => {
+test("Web MIDI: a batch dropped by the server (429) goes again at the next window, once taken never again", async ({ page }) => {
   const play = await fakeWebMidi(page);
   const bodies: { messages?: { bytes: number[] }[]; resend?: boolean }[] = [];
   await page.routeWebSocket(/\/api\/ws/, (ws) => {
@@ -6849,7 +6849,7 @@ test("Web MIDI: a batch dropped by the server (429) is sent again once, marked a
   await expect(page.locator(".midi .bar span[role=status]").first()).toHaveText("Pad");
   await play([0x90, 42, 100]);
   await expect.poll(() => bodies.length).toBe(2);
-  expect(bodies[1]).toEqual({ messages: [{ port: "Web MIDI · Pad", bytes: [0x90, 42, 100] }], resend: true });
+  expect(bodies[1]).toEqual({ messages: [{ port: "Web MIDI · Pad", bytes: [0x90, 42, 100] }] });
   await page.waitForTimeout(200);
   expect(bodies).toHaveLength(2); // once
   await page.getByRole("checkbox", { name: /MIDI de ce navigateur/ }).uncheck();

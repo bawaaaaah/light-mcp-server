@@ -189,14 +189,19 @@ describe("Web MIDI batches: one request per 15 ms window for the whole page", ()
     expect(h.sent.slice(2).every((s) => s.batch.messages.some((m) => m.port === PAD) && s.batch.messages.some((m) => m.port === KEYS))).to.equal(true);
   });
 
-  it("a batch dropped (429) for good: sent again once, marked, never a third time — no loop", () => {
-    const h = harness(() => "dropped");
+  it("a value dropped again and again still goes: one request per window at most, never a burst, until the server takes it", () => {
+    let down = true;
+    const h = harness(() => (down ? "dropped" : "ok"));
     h.b.push(PAD, [0xe0, 0, 127]);
     h.advance(200);
-    expect(h.sent.map((s) => s.batch.resend ?? false)).to.deep.equal([false, true, true]); // then its last value once more, at the next window, as a resend
-    expect(h.sent[2]!.at - h.sent[1]!.at).to.be.at.least(15); // the next window, not at once
-    h.advance(500);
-    expect(h.sent).to.have.length(3);
+    const tries = h.sent.length;
+    expect(tries).to.be.within(10, 200 / 15 + 2);
+    for (let k = 1; k < h.sent.length; k++) expect(h.sent[k]!.at - h.sent[k - 1]!.at).to.be.at.least(15);
+    expect(h.messages().every((m) => m.bytes[2] === 127)).to.equal(true);
+    down = false;
+    h.advance(30);
+    h.advance(300);
+    expect(h.sent.length).to.equal(tries + 1); // taken: nothing more
   });
 
   it("a 429 that comes late: no duplicate, never an older value after a newer one", () => {
@@ -210,14 +215,13 @@ describe("Web MIDI batches: one request per 15 ms window for the whole page", ()
     expect(wheel).to.deep.equal([127, 64]); // the dropped 127 is not sent after the 64
   });
 
-  it("a batch dropped while values wait: merged with them, in the order they came", () => {
+  it("a batch dropped while values wait: they go together at the next window, in the order they came", () => {
     const h = harness((_b, n) => (n === 1 ? { later: 3 } : "ok"));
     h.b.push(PAD, [0xb0, 7, 10]);
     h.b.push(PAD, [0xb0, 8, 20]); // waits in the window
     h.advance(1);
     h.b.push(PAD, [0xb0, 8, 25]);
     h.advance(50);
-    expect(h.sent[1]!.batch.resend).to.equal(true);
     expect(h.sent[1]!.batch.messages.map((m) => m.bytes)).to.deep.equal([
       [0xb0, 7, 10],
       [0xb0, 8, 20], // never sent before: its first value, where its gesture starts
@@ -232,7 +236,106 @@ describe("Web MIDI batches: one request per 15 ms window for the whole page", ()
     h.b.push(PAD, [0xb0, 7, 30]); // waits in the window
     h.advance(50);
     expect(h.messages().map((m) => m.bytes[2])).to.deep.equal([10, 30]);
-    expect(h.sent[1]!.batch.resend).to.equal(true);
+  });
+
+  it("a batch dropped late while the page is at rest: the window opens again and it goes", () => {
+    const h = harness((_b, n) => (n === 1 ? { later: 40 } : "ok"));
+    h.b.push(PAD, [0xe0, 0, 127]); // sent; the window closes at 15 ms, nothing else moving
+    h.advance(100);
+    expect(h.sent.map((s) => s.at)).to.deep.equal([0, 55]);
+    expect(h.sent[1]!.batch.messages[0]!.bytes).to.deep.equal([0xe0, 0, 127]);
+  });
+
+  it("a note off dropped late is sent again — a fader moving or the page at rest — but not once a newer message of its key went", () => {
+    for (const fader of [true, false]) {
+      const h = harness((b) => (b.messages.some((m) => m.bytes[0] === 0x80) && h.sent.filter((s) => s.batch.messages.some((m) => m.bytes[0] === 0x80)).length === 1 ? { later: 20 } : "ok"));
+      h.b.push(PAD, [0x90, 40, 100]);
+      for (let ms = 0; ms < 100; ms++) {
+        if (fader) h.b.push(PAD, [0xb0, 7, ms]);
+        if (ms === 50) h.b.push(PAD, [0x80, 40, 0]);
+        h.advance(1);
+      }
+      h.advance(100);
+      expect(h.messages().filter((m) => m.bytes[0] === 0x80), `fader ${fader}`).to.have.length(2);
+    }
+  });
+
+  it("a note dropped late is sent again though another note went since: notes are judged by their own key", () => {
+    const h = harness((_b, n) => (n === 1 ? { later: 20 } : "ok"));
+    h.b.push(PAD, [0x90, 40, 100]); // batch 1, dropped 20 ms later
+    h.advance(5);
+    h.b.push(PAD, [0x90, 41, 100]); // another key, sent at once
+    h.advance(60);
+    expect(h.messages().map((m) => m.bytes[1])).to.deep.equal([40, 41, 40]);
+  });
+
+  it("a rest dropped three times in a row (batch, then twice more) is not given up", () => {
+    const got: number[] = [];
+    const h = harness((b, n) => {
+      if (n >= 2 && n <= 4) return { later: 2 };
+      got.push(...b.messages.map((m) => m.bytes[2]!));
+      return "ok";
+    });
+    h.b.push(PAD, [0xe0, 0, 127]);
+    h.advance(100);
+    h.b.push(PAD, [0xe0, 0, 64]);
+    h.advance(300);
+    expect(got).to.deep.equal([127, 64]); // the device's wheel is at rest: so is the server's
+  });
+
+  it("everything dropped for a second, the wheel pushed then let go meanwhile: once the server answers, it gets the rest", () => {
+    let down = true;
+    const got: number[] = [];
+    const h = harness((b) => {
+      if (down) return { later: 2 };
+      got.push(...b.messages.map((m) => m.bytes[2]!));
+      return "ok";
+    });
+    h.b.push(PAD, [0xe0, 0, 127]);
+    h.advance(200);
+    h.b.push(PAD, [0xe0, 0, 64]);
+    h.advance(800);
+    expect(h.sent.length).to.be.at.most(1000 / 15 + 3); // one per window, never a burst
+    down = false;
+    h.advance(200);
+    expect(got).to.deep.equal([64]);
+  });
+
+  it("a value equal to the last one sent is not sent again", () => {
+    const h = harness();
+    h.b.push(PAD, [0xb0, 7, 64]);
+    h.advance(20);
+    h.b.push(PAD, [0xb0, 7, 64]);
+    h.advance(20);
+    expect(h.sent).to.have.length(1);
+  });
+
+  it("reads each kind's own value: a channel aftertouch's byte 1, a pitch bend's 14 bits, a poly aftertouch per key", () => {
+    const h = harness();
+    h.b.push(PAD, [0xd0, 10]);
+    h.b.push(PAD, [0xd0, 90]);
+    h.b.push(PAD, [0xd0, 10]); // turned at 90
+    h.b.push(PAD, [0xe0, 0, 64]);
+    h.advance(20);
+    h.b.push(PAD, [0xe0, 5, 64]); // the same top 7 bits, another value
+    h.b.push(PAD, [0xa0, 40, 10]);
+    h.b.push(PAD, [0xa0, 41, 20]); // another key: its own control
+    h.b.push(PAD, [0xa0, 40, 30]);
+    h.b.push(PAD, [0xa0, 41, 40]);
+    h.advance(20);
+    expect(h.messages().map((m) => m.bytes)).to.deep.equal([[0xd0, 10], [0xd0, 90], [0xd0, 10], [0xe0, 0, 64], [0xe0, 5, 64], [0xa0, 40, 10], [0xa0, 41, 20], [0xa0, 40, 30], [0xa0, 41, 40]]);
+  });
+
+  it("more than 512 messages in a window: cut into requests of 512 at most, sent in order, the rest last", () => {
+    const h = harness();
+    h.b.push(PAD, [0xe0, 0, 127]); // the wheel pushed, at once
+    for (let k = 0; k < 599; k++) h.b.push(PAD, [0xd0, k % 2 ? 90 : 10]); // an aftertouch shaking: every turn kept
+    h.b.push(PAD, [0xe0, 0, 64]); // back at rest
+    h.advance(20);
+    expect(h.sent.every((x) => x.batch.messages.length <= 512)).to.equal(true);
+    expect(h.sent.length).to.be.at.least(3);
+    expect(h.messages().at(-1)).to.deep.equal({ port: PAD, bytes: [0xe0, 0, 64] });
+    expect(h.messages()).to.have.length(601);
   });
 
   it("a batch with a note dropped late, after a newer batch went: its note is not sent again (a note on after its note off)", () => {

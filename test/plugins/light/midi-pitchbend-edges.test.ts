@@ -311,6 +311,38 @@ describe("pitch bend through the plugin", () => {
     );
   });
 
+  it("a page's window of 600 messages, cut as the page does: the wheel's rest after them is applied", async function () {
+    this.timeout(10_000);
+    const { MidiBatcher } = await import("../../../web/src/midi-coalesce.js");
+    const { over, until } = await wheelPlugin("momentary");
+    const calls: Promise<unknown>[] = [];
+    const batcher = new MidiBatcher(
+      (batch) => void calls.push(over("tab-a")("midi.in", batch)),
+      () => undefined, // the window never ends by itself here: flush() sends what waits
+      () => undefined,
+    );
+    batcher.push("Web MIDI · Pad", [0xe0, 0, 127]); // the wheel pushed: at once
+    await Promise.all(calls);
+    expect(await until(true)).to.equal(true);
+    for (let k = 0; k < 599; k++) batcher.push("Web MIDI · Pad", [0xd0, k % 2 ? 90 : 10]); // an aftertouch shaking
+    batcher.push("Web MIDI · Pad", [0xe0, 0, 64]); // back at rest
+    batcher.flush();
+    await Promise.all(calls); // every part accepted: none over the limit
+    expect(await until(false)).to.equal(false);
+  });
+
+  it("refuses a batch of 513 messages, an empty one, and any batch on a connection said closed", async function () {
+    this.timeout(10_000);
+    const { over, plugin } = await wheelPlugin("momentary");
+    const refused = (args: unknown, connection = "tab-a") => over(connection)("midi.in", args).then(() => "accepted", (e: Error) => e.message);
+    const at = (n: number) => Array.from({ length: n }, () => ({ bytes: [0xd0, 1] }));
+    expect(await refused({ messages: at(512) })).to.equal("accepted");
+    expect(await refused({ messages: at(513) })).to.not.equal("accepted");
+    expect(await refused({ messages: [] })).to.not.equal("accepted");
+    plugin.liveConnectionClosed("tab-b");
+    expect(await refused({ messages: at(1) }, "tab-b")).to.match(/connexion fermée|connection closed/);
+  });
+
   it("remembers the last 256 closed connections: an older one's late message is no longer refused", async function () {
     this.timeout(10_000);
     const { over, plugin } = await wheelPlugin("momentary");

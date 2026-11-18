@@ -454,7 +454,7 @@ describe("server end to end", function () {
     expect(link.closedWith()).to.equal(undefined);
     const after = ((await (await command(token, "midi.status", {})).json()) as { result: { webMidiDropped: number } }).result.webMidiDropped;
     expect(after - before).to.equal(dropped);
-    expect(link.warnings).to.deep.equal([`${dropped} message(s) Web MIDI jeté(s) : flux trop rapide`]); // once, for the whole second
+    expect(link.warnings).to.deep.equal([`${dropped} lot(s) Web MIDI jeté(s) : flux trop rapide`]); // once, for the whole second, in batches
     link.ws.close();
   });
 

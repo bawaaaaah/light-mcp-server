@@ -8,6 +8,7 @@ import { MappingSchema, type Mapping, type MidiMapper } from "../midi/mapping.js
 import type { Collection } from "../data/store.js";
 import type { TempoClock } from "../timing/tempo.js";
 import { oscRoutes } from "../osc/server.js";
+import { MAX_BATCH } from "../midi/relay-limits.js";
 import { say } from "../../../core/lang.js";
 import type { LoopDelayStats } from "../../../core/loop-delay.js";
 
@@ -58,7 +59,7 @@ export interface MidiServices {
   selectProfile: (name: string) => Promise<void>;
   saveProfile: (name: string, profile: MidiProfile) => Promise<void>;
   portLoss: () => PortLoss;
-  /** Web MIDI messages dropped past their rate since the server started. */
+  /** Web MIDI requests (batches) dropped past their rate since the server started. */
   webMidiDropped: () => number;
   /** Whether a browser's live connection is still open (not yet said closed). */
   clientOpen: (client: string) => boolean;
@@ -67,8 +68,6 @@ export interface MidiServices {
 
 /** One MIDI message as a browser relays it (status byte first). */
 const MidiBytes = z.array(z.number().int().min(0).max(255)).min(1).max(3);
-/** The most messages one batch carries (a page's 15 ms; far more than a hand plays). */
-const MAX_BATCH = 512;
 
 export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): void {
   const reloadMappings = () => s.mapper.setMappings(s.mappings.list());
@@ -77,7 +76,7 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
     name: "midi.status",
     title: "État MIDI",
     titleEn: "MIDI status",
-    description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output), how many Web MIDI messages were dropped past their rate (webMidiDropped), and how long Node keeps a message waiting (node: p50, p99 and max of the last 10 s, the worst stall of the last hour, in ms).",
+    description: "MIDI inputs detected and watched (with last activity), feedback port, RTP-MIDI sessions, active input profile and its settings (watched input patterns, feedback output), how many Web MIDI requests (batches, each up to 512 messages) were dropped past their rate (webMidiDropped), and how long Node keeps a message waiting (node: p50, p99 and max of the last 10 s, the worst stall of the last hour, in ms).",
     right: "dashboards:view",
     readOnly: true,
     profiles: ["setup", "live"],
@@ -349,9 +348,8 @@ export function registerMidiCommands(reg: CommandRegistry, s: MidiServices): voi
           .max(MAX_BATCH)
           .optional()
           .describe("A batch: the messages of every input of the page, in the order they came, applied in that order."),
-        resend: z.boolean().optional().describe("Sent again after the server dropped it (its 429): said only, applied as any batch."),
       })
-      .refine((a) => (a.bytes === undefined) !== (a.messages === undefined), { message: "bytes ou messages, l'un des deux" }),
+      .refine((a) => (a.bytes === undefined) !== (a.messages === undefined), { error: () => say("bytes ou messages, l'un des deux", "bytes or messages, one of the two") }),
     run: ({ port, bytes, messages }, ctx) => {
       // a connection already closed: its inputs were let go, a late message must not hold again
       if (ctx.connection && !s.clientOpen(ctx.connection)) throw new Error(say("connexion fermée : ce relais Web MIDI n'existe plus", "connection closed: this Web MIDI relay is gone"));

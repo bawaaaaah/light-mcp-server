@@ -75,7 +75,7 @@ export class MidiWiring {
   /** The light's tempo as MIDI clock, to the profile's clock output (none set: nothing is sent). */
   private readonly clockOut = new ClockOut(() => this.deps.tempo.state(), (bytes) => this.hub.sendClock(bytes));
   private clockTimer: NodeJS.Timeout | undefined;
-  /** Web MIDI messages dropped past their rate (since the server started), and those not yet said on the monitor. */
+  /** Web MIDI requests (batches) dropped past their rate (since the server started), and those not yet said on the monitor. */
   private droppedTotal = 0;
   private droppedUnsaid = 0;
   private droppedTimer: NodeJS.Timeout | undefined;
@@ -144,7 +144,7 @@ export class MidiWiring {
     return this.portLoss()[source === "rtp" ? "rtp" : source === "web" ? "web" : "local"] === "release";
   }
 
-  /** A Web MIDI message dropped: counted, said on the monitor at most once a second (a flood must not flood it too). */
+  /** A Web MIDI request (a batch) dropped: counted, said on the monitor at most once a second (a flood must not flood it too). */
   dropped(): void {
     this.droppedTotal++;
     this.droppedUnsaid++;
@@ -154,7 +154,7 @@ export class MidiWiring {
       const n = this.droppedUnsaid;
       this.droppedUnsaid = 0;
       // a plain string, as the hub's own warnings: a timer has no request, so no client's language to answer in
-      this.deps.publish("midi", { warning: `${n} message(s) Web MIDI jeté(s) : flux trop rapide` });
+      this.deps.publish("midi", { warning: `${n} lot(s) Web MIDI jeté(s) : flux trop rapide` });
     }, 1000);
     this.droppedTimer.unref();
   }
